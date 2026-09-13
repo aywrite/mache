@@ -1,0 +1,12 @@
+# What the release job installs. `build` makes the sdist and the wheel and
+# `twine` checks them before they are published.
+#
+# release.txt is compiled from this file and is what the workflow installs.
+# Dependabot watches this directory and bumps the compiled file. A version
+# written inside a `run:` line is invisible to it, which is why the pin lives
+# here.
+#
+#   pip-compile --generate-hashes --no-header \
+#     --output-file=.github/requirements/release.txt .github/requirements/release.in
+build
+twine

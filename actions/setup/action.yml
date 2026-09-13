@@ -137,11 +137,14 @@ runs:
     # environment file written by one step of a composite action is read by
     # every step after it in the job, which is what lets this line do the work
     # of an install: nothing is fetched, nothing is built, and the commit the
-    # job pinned this action at is the code that runs.
+    # job pinned this action at is the code that runs. zizmor flags the write
+    # to the environment file as github-env, and it is accepted here rather
+    # than worked around, because the value is built from GITHUB_ACTION_PATH
+    # and no caller can reach it.
     - name: Put the package on the path
       id: package
       shell: bash
-      run: |
+      run: | # zizmor: ignore[github-env]
         root=$(cd "${GITHUB_ACTION_PATH}/../.." && pwd)
         echo "PYTHONPATH=${root}${PYTHONPATH:+:${PYTHONPATH}}" >> "$GITHUB_ENV"
         version=$(PYTHONPATH="${root}${PYTHONPATH:+:${PYTHONPATH}}" \

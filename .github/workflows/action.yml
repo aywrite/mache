@@ -27,9 +27,16 @@ jobs:
         # naming the shell is what turns on pipefail
         shell: bash
     steps:
+      # The checkout leaves the token it used in .git/config unless it is told
+      # not to. This workflow only reads the tree, so nothing wants it there.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - uses: ./actions/setup
+      # Out of the checkout, which is how a consumer's job reaches it and where
+      # the book table below comes from. zizmor prefers the `$/` form, which
+      # gets the action without a checkout; that is not the shape being tested.
+      - uses: ./actions/setup # zizmor: ignore[self-repository]
         id: tools
         with:
           book_table: tests/fixtures/books.sh
@@ -69,10 +76,12 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       # No book table is given, because this mode must not read one. A job that
       # reads games rather than playing them wants the package and nothing else.
-      - uses: ./actions/setup
+      - uses: ./actions/setup # zizmor: ignore[self-repository]
         id: tools
         with:
           estimator_only: true
