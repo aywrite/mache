@@ -1,0 +1,11 @@
+# What the lint job installs. pre-commit manages the environment of every hook
+# itself, so the runner is the only thing pinned here.
+#
+# lint.txt is compiled from this file and is what the workflow installs.
+# Dependabot watches this directory and bumps the compiled file. A version
+# written inside a `run:` line is invisible to it, which is why the pin lives
+# here.
+#
+#   pip-compile --generate-hashes --no-header \
+#     --output-file=.github/requirements/lint.txt .github/requirements/lint.in
+pre-commit

@@ -12,3 +12,15 @@ updates:
     # comment, because a tag is mutable and a release hands an action a token
     # that can write. Dependabot rewrites the commit and the comment together,
     # so every bump is a real change to what runs.
+
+  - package-ecosystem: "pip"
+    directory: "/.github/requirements"
+    schedule:
+      interval: "weekly"
+    groups:
+      requirements:
+        patterns:
+          - "*"
+    # What the jobs install from PyPI, pinned with hashes in these files rather
+    # than named in a `run:` line. A version inside a run line is invisible to
+    # Dependabot, so a pin written there would be a pin nothing ever raised.
