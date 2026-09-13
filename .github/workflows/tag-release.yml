@@ -1,0 +1,109 @@
+name: Tag release
+
+# Tags main whenever the version the package states has not been released yet,
+# which in practice is when a release pull request from prepare-release.yml has
+# just been merged. Every other push finds the tag already there and does
+# nothing.
+#
+# It reads the version rather than the commit message, because the message of a
+# merged pull request depends on whether it was merged, squashed or rebased,
+# and the version is the thing being released. The tag is made here rather than
+# on the release branch so that it points at the commit that is on main.
+
+on:
+  push:
+    branches: [ "main" ]
+
+permissions:
+  contents: write
+  # to start the release workflow, see the step that does it
+  actions: write
+
+# releases are not something to run two of at once, so this shares a group with
+# prepare-release.yml
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # This checkout keeps its credential, unlike the others in this
+      # repository, because the tag is pushed with git further down and there
+      # is nothing else to push it with. zizmor flags that as artipacked, and
+      # it is accepted here for that reason.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: # zizmor: ignore[artipacked]
+          # the tags, which are what say whether this version is already out
+          fetch-depth: 0
+
+      - name: Work out whether there is anything to tag
+        id: version
+        run: |
+          # The same expression release.yml checks a tag against, so the two
+          # cannot disagree about what the version is. It needs no install:
+          # mache/__init__.py imports nothing outside the standard library.
+          version=$(python3 -c 'import mache; print(mache.__version__)')
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${version}" >> "$GITHUB_OUTPUT"
+          if git rev-parse -q --verify "refs/tags/v${version}" >/dev/null; then
+            echo "::notice::v${version} is already tagged, nothing to do"
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "needed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create and push the tag
+        if: steps.version.outputs.needed == 'true'
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+          ACTOR: ${{ github.actor }}
+          ACTOR_ID: ${{ github.actor_id }}
+        run: |
+          # release.yml makes the release notes out of the tag's own message,
+          # so the tag carries the changelog section for this version: what
+          # stands between its heading and the next one.
+          awk -v heading="## [${VERSION}]" '
+            index($0, heading) == 1 { inside = 1; next }
+            /^## \[/ || /^<!--/ { inside = 0 }
+            inside
+          ' CHANGELOG.md > "${RUNNER_TEMP}/notes.md"
+          if ! grep -q '^- ' "${RUNNER_TEMP}/notes.md"; then
+            echo "::error::CHANGELOG.md has no section for ${VERSION} to tag with"
+            exit 1
+          fi
+          git config user.name "$ACTOR"
+          git config user.email "${ACTOR_ID}+${ACTOR}@users.noreply.github.com"
+          # verbatim but for the blank lines at either end. Left to itself git
+          # reads a line starting with # as commentary and would drop the
+          # section headings out of the notes.
+          git tag -a "$TAG" --cleanup=whitespace -F "${RUNNER_TEMP}/notes.md"
+          git push origin "$TAG"
+
+      # A tag pushed with GITHUB_TOKEN does not set off the tag trigger on the
+      # release workflow. GitHub suppresses events raised by that token so that
+      # workflows cannot start each other off, and workflow_dispatch is the
+      # documented exception, so the release is started explicitly at the new
+      # tag.
+      - name: Start the release workflow
+        if: steps.version.outputs.needed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: gh workflow run release.yml --ref "$TAG"
+
+      - name: Summary
+        if: steps.version.outputs.needed == 'true'
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          {
+            echo "### Tagged ${TAG}"
+            echo
+            echo "The release workflow is building the sdist and the wheel,"
+            echo "publishing them and making the github release from the tag's"
+            echo "own message, which is the changelog section for ${TAG}."
+          } >> "$GITHUB_STEP_SUMMARY"

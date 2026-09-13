@@ -1,0 +1,194 @@
+name: Prepare release
+
+# Starts a release from the actions tab. It runs the tests, bumps the version,
+# writes the changelog section for it and opens a pull request with those two
+# files. Merging that pull request is what tags and releases it, which
+# tag-release.yml does, so nothing is tagged or published until it lands and
+# closing the pull request calls the release off.
+#
+# The tests run here as well as in the release workflow, because failing here
+# means nothing was created, rather than a pull request that has to be closed
+# again.
+
+on:
+  workflow_dispatch:
+    inputs:
+      level:
+        description: How much to bump the version by
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+        default: patch
+
+permissions:
+  contents: write
+  pull-requests: write
+
+# releases are not something to run two of at once, so this shares a group with
+# tag-release.yml
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check the branch before doing any work
+        if: github.ref_name != 'main'
+        env:
+          STARTED_FROM: ${{ github.ref_name }}
+        run: |
+          echo "::error::releases are cut from main, this was started from ${STARTED_FROM}"
+          exit 1
+
+      # This checkout keeps its credential, unlike the others in this
+      # repository, because the release branch is pushed with git further down
+      # and there is nothing else to push it with. zizmor flags that as
+      # artipacked, and it is accepted here for that reason.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: # zizmor: ignore[artipacked]
+          # git-cliff reads the commits and the tags, and the tags are what say
+          # where the last release was
+          fetch-depth: 0
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Run the tests
+        run: |
+          python -m pip install --quiet -e '.[test]'
+          python -m pytest tests -q
+
+      - name: Install git-cliff
+        # From the one pinned file, so that a changelog is not written by
+        # whatever the day's latest happens to be, and so that Dependabot can
+        # raise the pin: a version inside a run line is invisible to it.
+        run: python -m pip install --quiet --require-hashes -r .github/requirements/prepare.txt
+
+      - name: What the commits since the last tag suggest
+        id: suggested
+        run: |
+          # Printed in the summary beside the level that was chosen, so that a
+          # mismatch is visible. It decides nothing, and a failure here must not
+          # stop a release over a figure nothing reads.
+          suggested=$(git-cliff --bumped-version 2>/dev/null || echo "unknown")
+          echo "version=${suggested}" >> "$GITHUB_OUTPUT"
+
+      - name: Bump the version
+        id: version
+        env:
+          LEVEL: ${{ inputs.level }}
+        run: |
+          python3 - "$LEVEL" <<'PY' >> "$GITHUB_OUTPUT"
+          import re
+          import sys
+          from pathlib import Path
+
+          # The version is one assignment in one file, and pyproject.toml reads
+          # it from there, so this is the whole of the bump.
+          path = Path("mache/__init__.py")
+          text = path.read_text(encoding="utf-8")
+          found = re.search(r'^__version__ = "(\d+)\.(\d+)\.(\d+)"$', text, re.M)
+          if not found:
+              sys.exit("mache/__init__.py has no version assignment to bump")
+          major, minor, patch = (int(part) for part in found.groups())
+          major, minor, patch = {
+              "major": (major + 1, 0, 0),
+              "minor": (major, minor + 1, 0),
+              "patch": (major, minor, patch + 1),
+          }[sys.argv[1]]
+          version = f"{major}.{minor}.{patch}"
+          raised = f'__version__ = "{version}"'
+          path.write_text(
+              text[: found.start()] + raised + text[found.end() :], encoding="utf-8"
+          )
+          print(f"version={version}")
+          PY
+
+      - name: Write the changelog section
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          previous=$(git tag --list 'v[0-9]*' --sort=-v:refname | head -1)
+          if [ -n "$previous" ]; then
+            echo "the section covers ${previous}..HEAD"
+            git-cliff --tag "v${VERSION}" "${previous}..HEAD" --prepend CHANGELOG.md
+          else
+            echo "no release to measure from, so the section covers everything"
+            git-cliff --tag "v${VERSION}" --prepend CHANGELOG.md
+          fi
+          # A section with no entries is a release with nothing in it, which is
+          # a dispatch made by mistake rather than something to publish.
+          if ! awk -v heading="## [${VERSION}]" '
+                index($0, heading) == 1 { inside = 1; next }
+                /^## \[/ { inside = 0 }
+                inside && /^- / { found = 1 }
+                END { exit !found }
+              ' CHANGELOG.md; then
+            echo "::error::nothing has landed since ${previous}, so there is nothing to release"
+            exit 1
+          fi
+
+      - name: Commit the release and push its branch
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          ACTOR: ${{ github.actor }}
+          ACTOR_ID: ${{ github.actor_id }}
+        run: |
+          git config user.name "$ACTOR"
+          git config user.email "${ACTOR_ID}+${ACTOR}@users.noreply.github.com"
+          git switch -c "release/v${VERSION}"
+          git add mache/__init__.py CHANGELOG.md
+          # The scope is one of the five the repository allows. The commit-msg
+          # hook does not run on a runner, so it is chosen here and not checked.
+          git commit -m "chore(package): prepare for ${VERSION}"
+          git push -u origin "release/v${VERSION}"
+
+      - name: Open the pull request
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+          LEVEL: ${{ inputs.level }}
+        run: |
+          cat > "${RUNNER_TEMP}/body.md" <<EOF
+          Prepares \`v${VERSION}\`, a ${LEVEL} bump.
+
+          The version and the changelog section are the whole diff. Merging this
+          tags \`v${VERSION}\` and starts the release, which publishes the sdist
+          and the wheel and makes the github release from the tag.
+
+          Close it without merging to call the release off. Nothing has been
+          tagged or published yet.
+          EOF
+          url=$(gh pr create \
+            --base main \
+            --head "release/v${VERSION}" \
+            --title "chore(package): prepare for ${VERSION}" \
+            --body-file "${RUNNER_TEMP}/body.md")
+          echo "url=${url}" >> "$GITHUB_OUTPUT"
+
+      - name: Summary
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          LEVEL: ${{ inputs.level }}
+          SUGGESTED: ${{ steps.suggested.outputs.version }}
+          URL: ${{ steps.pr.outputs.url }}
+        run: |
+          {
+            echo "### Release pull request for v${VERSION}"
+            echo
+            echo "${URL}"
+            echo
+            echo "Bumped by \`${LEVEL}\`. The commits since the last tag read as"
+            echo "\`${SUGGESTED}\` to git-cliff, which is here to compare against"
+            echo "and decides nothing."
+            echo
+            echo "Merging it tags the release and starts the build."
+          } >> "$GITHUB_STEP_SUMMARY"
