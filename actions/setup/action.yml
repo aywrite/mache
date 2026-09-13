@@ -1,0 +1,139 @@
+name: Set up mache
+description: >
+  Build fastchess at a pinned commit, fetch the opening books a table names and
+  check them, and put the mache package on PYTHONPATH for the rest of the job.
+
+inputs:
+  fastchess:
+    description: The fastchess release to build
+    # every fastchess release is tagged -alpha, there is no plain v1.8.2
+    default: v1.8.2-alpha
+  fastchess_sha:
+    description: >
+      The commit that release tag points at. The clone checks this commit out
+      and fails if the tag no longer resolves to it, so a moved tag stops the
+      run rather than building something else under the name a manifest
+      records.
+    default: f618e34540f94f4719ad3817950618dabe441318
+  book_table:
+    description: >
+      The book table to fetch from, in the calling repository's checkout. It is
+      called as `list`, `pin`, `fetch <book> <dir>` and `verify <book> <dir>`;
+      actions/setup/README.md states the contract.
+    default: scripts/book.sh
+  estimator_only:
+    description: >
+      Skip the cache, the fastchess build and the books. Put the package on the
+      path and stop. This is what a job that reads games rather than playing
+      them wants.
+    default: "false"
+
+outputs:
+  fastchess:
+    # handed back rather than read off the built binary, so a run that records
+    # what it played on records the release that was asked for
+    description: The fastchess release that is in tools/
+    value: ${{ inputs.fastchess }}
+  version:
+    description: The version of the mache package that is on the path
+    value: ${{ steps.package.outputs.version }}
+
+runs:
+  using: composite
+  steps:
+    # The pin the books are fetched at, read from the table rather than written
+    # down here. It is part of the cache key, so without this the key would
+    # hold a second copy of the pin and a changed pin would restore the file
+    # fetched at the old one under the new one's name.
+    - name: Read the books pin
+      if: inputs.estimator_only != 'true'
+      id: books
+      shell: bash
+      env:
+        BOOK_TABLE: ${{ inputs.book_table }}
+      run: |
+        pin=$("$BOOK_TABLE" pin) \
+          || { echo "::error::${BOOK_TABLE} does not say what commit its books come from"; exit 1; }
+        echo "pin=${pin}" >> "$GITHUB_OUTPUT"
+
+    - name: Cache the match tools
+      if: inputs.estimator_only != 'true'
+      id: cache
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        # Named one by one rather than as the whole of tools/, because a match
+        # writes its games, its results and the engines it played into the same
+        # directory, and caching those would mean a later run restoring an
+        # earlier run's games and being able to read them as its own.
+        path: |
+          tools/fastchess
+          tools/8moves_v3.pgn
+          tools/UHO_4060_v2.epd
+        # The release belongs to the input rather than to the key, so that
+        # bumping it cannot leave the key naming a build it no longer
+        # describes. The books pin is here for the same reason.
+        key: match-tools-${{ inputs.fastchess }}-books-${{ steps.books.outputs.pin }}
+
+    - name: Build the match tools
+      if: inputs.estimator_only != 'true' && steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        FASTCHESS: ${{ inputs.fastchess }}
+        FASTCHESS_SHA: ${{ inputs.fastchess_sha }}
+        BOOK_TABLE: ${{ inputs.book_table }}
+      run: |
+        mkdir -p tools
+        git clone --depth 1 --branch "$FASTCHESS" \
+          https://github.com/Disservin/fastchess.git /tmp/fastchess
+        # The tag is the name a reader knows and the commit is what is built. A
+        # tag is mutable, so a tag that has been moved since this default was
+        # written fails here rather than putting a different binary in tools/
+        # under the release name the manifest records.
+        at=$(git -C /tmp/fastchess rev-parse "refs/tags/${FASTCHESS}^{commit}")
+        if [ "$at" != "$FASTCHESS_SHA" ]; then
+          echo "::error::fastchess ${FASTCHESS} is ${at}, not the ${FASTCHESS_SHA} this run asked for"
+          exit 1
+        fi
+        git -C /tmp/fastchess checkout --quiet "$FASTCHESS_SHA"
+        make -C /tmp/fastchess -j"$(nproc)"
+        cp /tmp/fastchess/fastchess tools/
+        # Every book in the table, rather than the one a run asked for. Both of
+        # them together are about four and a half megabytes, which is less than
+        # an input to choose between them would be worth, and it keeps the
+        # cache to one entry whichever book a run plays. Each is fetched at the
+        # pin and checked against the sha256 the table names.
+        while read -r book; do
+          "$BOOK_TABLE" fetch "$book" tools \
+            || { echo "::error::cannot fetch the ${book} book"; exit 1; }
+        done < <("$BOOK_TABLE" list)
+
+    - name: Check the books against the table
+      if: inputs.estimator_only != 'true'
+      shell: bash
+      env:
+        BOOK_TABLE: ${{ inputs.book_table }}
+      run: |
+        # However they got here. The fetch checks what it downloaded, but the
+        # step above is skipped on a cache hit, and a restored file is what
+        # most runs play: without this the pin would be checked on the rare
+        # path and taken on trust on the usual one.
+        while read -r book; do
+          "$BOOK_TABLE" verify "$book" tools \
+            || { echo "::error::the ${book} book is not the one it should be"; exit 1; }
+        done < <("$BOOK_TABLE" list)
+
+    # What every later step of the calling job reads the package from. An
+    # environment file written by one step of a composite action is read by
+    # every step after it in the job, which is what lets this line do the work
+    # of an install: nothing is fetched, nothing is built, and the commit the
+    # job pinned this action at is the code that runs.
+    - name: Put the package on the path
+      id: package
+      shell: bash
+      run: |
+        root=$(cd "${GITHUB_ACTION_PATH}/../.." && pwd)
+        echo "PYTHONPATH=${root}${PYTHONPATH:+:${PYTHONPATH}}" >> "$GITHUB_ENV"
+        version=$(PYTHONPATH="${root}${PYTHONPATH:+:${PYTHONPATH}}" \
+          python3 -c 'import mache; print(mache.__version__)')
+        echo "version=${version}" >> "$GITHUB_OUTPUT"
+        echo "::notice::mache ${version} is on the path"

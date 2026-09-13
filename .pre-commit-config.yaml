@@ -1,0 +1,33 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-yaml
+      - id: check-toml
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-merge-conflict
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.1
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.11.0.1
+    hooks:
+      - id: shellcheck
+  - repo: https://github.com/compilerla/conventional-pre-commit
+    rev: v4.4.0
+    hooks:
+      # A scope is required and has to be one of the five below, so that the
+      # log says which part of the repository a commit is about.
+      - id: conventional-pre-commit
+        stages: [commit-msg]
+        args:
+          # without --verbose a rejected scope only says the message is not a
+          # conventional commit, it does not say which scopes are allowed
+          - --verbose
+          - --force-scope
+          - --scopes
+          - package,action,ci,docs,deps

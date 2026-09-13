@@ -1,0 +1,11 @@
+__pycache__/
+
+# what a pip install leaves behind, editable or not
+*.egg-info/
+/build/
+/dist/
+
+# agent instructions for one machine, kept out of the repository. The pattern
+# rather than the names, so that whatever an agent reads its instructions from
+# is covered.
+/*.local.md

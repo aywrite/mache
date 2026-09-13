@@ -1,0 +1,54 @@
+# The four match tools as one installable package, so that what reads a match
+# can be imported by name rather than found by sitting in the right directory.
+#
+# The package needs nothing outside the standard library. Its version is its
+# own: it names the tooling a figure was read with, which is why a manifest
+# records it, and it has no relation to the version of any engine that calls it.
+
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mache"
+# the one in mache/__init__.py, which is where the --json output reads it from,
+# so there is one version and not two to keep level
+dynamic = ["version"]
+description = "Read a sharded engine match: the pooled estimate and the ccrl fit"
+readme = "README.md"
+# the floor the `X | None` annotations set
+requires-python = ">=3.10"
+license = "MIT"
+authors = [{ name = "Andrew Wright" }]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/aywrite/mache"
+
+[project.optional-dependencies]
+# What the tests need, and nothing else: the tools themselves need nothing, so
+# an install for use installs no dependency at all. A compatible release pin
+# rather than an exact one, because this is a test tool and what is being held
+# still is the major version the tests were written against.
+#
+# The linting is pinned separately, by .pre-commit-config.yaml, which manages
+# its own environments.
+test = ["pytest~=9.1"]
+
+# The command names an install gives, so that a consumer that installs the
+# package calls it by name. A consumer that takes the composite action instead
+# gets the package on PYTHONPATH and calls `python3 -m mache.<tool>`, which is
+# the same code by the other route.
+[project.scripts]
+match-estimate = "mache.match_estimate:main"
+rating-estimate = "mache.rating_estimate:main"
+match-terminations = "mache.match_terminations:main"
+book-slice = "mache.book_slice:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "mache.__version__" }
+
+[tool.setuptools.packages.find]
+# Named rather than discovered. Left to itself setuptools takes this directory
+# for a flat layout and installs tests as a package called tests.
+include = ["mache*"]

@@ -1,0 +1,14 @@
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      actions:
+        patterns:
+          - "*"
+    # Every action here is pinned to a commit with the version in a trailing
+    # comment, because a tag is mutable and a release hands an action a token
+    # that can write. Dependabot rewrites the commit and the comment together,
+    # so every bump is a real change to what runs.

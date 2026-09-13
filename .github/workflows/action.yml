@@ -1,0 +1,93 @@
+name: Action
+
+# The action is the half of this repository no unit test reaches: it builds
+# fastchess, fetches a book and sets an environment file, and all three of those
+# are only true on a runner. This runs it against a book table of one book and
+# checks what a consumer depends on.
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        # naming the shell is what turns on pipefail
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: ./actions/setup
+        id: tools
+        with:
+          book_table: tests/fixtures/books.sh
+
+      - name: The harness is there and runs
+        run: |
+          tools/fastchess --version
+
+      - name: The book is the one the table names
+        run: |
+          tests/fixtures/books.sh verify 8moves_v3 tools
+
+      - name: The package is on the path the action set
+        run: |
+          python3 -m mache.match_estimate --help > /dev/null
+          python3 -m mache.rating_estimate --help > /dev/null
+          python3 -m mache.match_terminations --help > /dev/null
+          python3 -m mache.book_slice --help > /dev/null
+
+      - name: The version output is the package's own
+        env:
+          REPORTED: ${{ steps.tools.outputs.version }}
+          FASTCHESS: ${{ steps.tools.outputs.fastchess }}
+        run: |
+          installed=$(python3 -c 'import mache; print(mache.__version__)')
+          if [ "$REPORTED" != "$installed" ]; then
+            echo "::error::the action says ${REPORTED} and the package says ${installed}"
+            exit 1
+          fi
+          echo "mache ${REPORTED} with fastchess ${FASTCHESS}"
+
+  estimator-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # No book table is given, because this mode must not read one. A job that
+      # reads games rather than playing them wants the package and nothing else.
+      - uses: ./actions/setup
+        id: tools
+        with:
+          estimator_only: true
+
+      - name: Nothing was built and nothing was fetched
+        run: |
+          if [ -e tools ]; then
+            echo "::error::tools/ exists, so the build or the books ran"
+            ls -l tools
+            exit 1
+          fi
+
+      - name: The package still imports and still says what it is
+        env:
+          REPORTED: ${{ steps.tools.outputs.version }}
+        run: |
+          python3 -c 'from mache import match_estimate, rating_estimate'
+          test "$REPORTED" = "$(python3 -c 'import mache; print(mache.__version__)')"
