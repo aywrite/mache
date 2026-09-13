@@ -71,8 +71,11 @@ runs:
           tools/UHO_4060_v2.epd
         # The release belongs to the input rather than to the key, so that
         # bumping it cannot leave the key naming a build it no longer
-        # describes. The books pin is here for the same reason.
-        key: match-tools-${{ inputs.fastchess }}-books-${{ steps.books.outputs.pin }}
+        # describes. The books pin is here for the same reason. The build mode
+        # is in it because the first entries under this key held a binary built
+        # for the runner that built it, and what is cached now is one that runs
+        # anywhere.
+        key: match-tools-${{ inputs.fastchess }}-release-books-${{ steps.books.outputs.pin }}
 
     - name: Build the match tools
       if: inputs.estimator_only != 'true' && steps.cache.outputs.cache-hit != 'true'
@@ -95,7 +98,15 @@ runs:
           exit 1
         fi
         git -C /tmp/fastchess checkout --quiet "$FASTCHESS_SHA"
-        make -C /tmp/fastchess -j"$(nproc)"
+        # build=release, and not the default build, because the default is
+        # -march=native and this binary is cached under a key that says nothing
+        # about a cpu. A runner that restored it from a cache filled by a
+        # different runner model died on an instruction it did not have.
+        # build=release asks for -march=x86-64, which runs on any of them, and
+        # links statically, so the binary does not depend on the glibc of the
+        # image that built it either. fastchess only runs the games; the engines
+        # do the searching, so the tuning it gives up costs nothing measurable.
+        make -C /tmp/fastchess build=release -j"$(nproc)"
         cp /tmp/fastchess/fastchess tools/
         # Every book in the table, rather than the one a run asked for. Both of
         # them together are about four and a half megabytes, which is less than
