@@ -607,7 +607,32 @@ class TestSequential:
             shards, estimate, text, match_estimate.Sprt(pairs, 0, 10, [0, 0, 100, 0, 5])
         )
         assert "SPRT [0, 10] passed." in printed
-        assert "stronger by about 10 elo or more" in printed
+        assert (
+            "The pairs favour a difference of about 10 elo over one of about 0"
+            in printed
+        )
+        # a pass prefers the larger hypothesis, it does not put a floor under
+        # the difference, and the old wording claimed it did
+        assert "or more" not in printed
+        assert "not a floor under the difference" in printed
+
+    def test_a_test_that_failed_says_what_that_does_not_show(self, tmp_path):
+        # a fail favours elo0 over elo1. It is not a finding that the
+        # candidate is weaker, and the report says so rather than implying it
+        shards, estimate, text = pooled(tmp_path, [drawn(1) + pair(2)])
+        pairs = [score for one in shards for score in one.pairs]
+        printed = match_estimate.report(
+            shards,
+            estimate,
+            text,
+            match_estimate.Sprt(pairs, 0, 10, [20, 0, 100, 0, 0]),
+        )
+        assert "SPRT [0, 10] failed." in printed
+        assert (
+            "The pairs favour a difference of about 0 elo over one of about 10"
+            in printed
+        )
+        assert "That does not show the candidate is weaker" in printed
 
 
 class TestJson:
