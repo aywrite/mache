@@ -666,7 +666,10 @@ def read_shards(paths: list[Path], candidate: str) -> tuple[list[Shard], str]:
     directory of its own, so the name falls back to the file's."""
     shards, texts = [], []
     for path in paths:
-        text = path.read_text()
+        # fastchess writes utf-8, and an engine name or a comment can carry
+        # a character outside ascii, so the encoding is stated rather than
+        # taken from whatever locale the runner or the shell happens to set
+        text = path.read_text(encoding="utf-8")
         texts.append(text)
         shards.append(Shard(path.parent.name or path.name, text, candidate))
     shards.sort(key=lambda shard: (shard.index is None, shard.index or 0, shard.name))

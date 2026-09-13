@@ -14,6 +14,7 @@ an interval the games do not support.
 
 import json
 import math
+import os
 import subprocess
 
 import pytest
@@ -332,6 +333,47 @@ class TestCommandLine:
             capture_output=True,
             text=True,
         )
+
+    def test_a_pgn_outside_ascii_is_read_whatever_the_locale_says(self, tmp_path):
+        """The pgn is read as utf-8 and not as whatever the locale asks for.
+
+        fastchess writes utf-8, and an engine name or a comment can carry a
+        character outside ascii. A runner or a shell left on a C locale makes
+        Python's default encoding ascii, and reading the pgn with that default
+        raised UnicodeDecodeError before the encoding was stated. --json is
+        what is read back here because it escapes to ascii, which stdout can
+        carry under the same locale.
+        """
+        pgn = tmp_path / "games.pgn"
+        pgn.write_text(
+            (drawn(1) + pair(2)).replace(f'"{BASELINE}"', '"Br\u00e9ton"'),
+            encoding="utf-8",
+        )
+        result = subprocess.run(
+            [
+                *COMMAND,
+                str(pgn),
+                "--candidate",
+                CANDIDATE,
+                "--baseline",
+                BASE,
+                "--json",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            env={
+                **os.environ,
+                # no utf-8 mode and no coercion of the C locale, so the
+                # encoding the interpreter falls back to is ascii
+                "PYTHONUTF8": "0",
+                "PYTHONCOERCECLOCALE": "0",
+                "LC_ALL": "C",
+                "LANG": "C",
+            },
+        )
+        assert result.returncode == 0, result.stderr
+        assert json.loads(result.stdout)["games"] == 4
 
     def test_the_report_goes_to_stdout_and_nothing_else_does(self, tmp_path):
         result = self.run(tmp_path, [drawn(1) + drawn(2), drawn(1) + drawn(2)])

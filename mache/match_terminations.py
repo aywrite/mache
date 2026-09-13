@@ -168,7 +168,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    totals, blamed = count(args.pgn.read_text())
+    totals, blamed = count(args.pgn.read_text(encoding="utf-8"))
     if args.json:
         # allow_nan=False rather than the default, so a figure that is not a
         # number fails here rather than being written as one no parser has to

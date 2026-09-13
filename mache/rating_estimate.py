@@ -172,7 +172,7 @@ def read_pairings(
     `remarks` as well when a caller wants to print it somewhere else too."""
     tally: dict[str, list[int]] = {name: [0, 0, 0] for name in ladder}
     unfinished = 0
-    text = pgn.read_text()
+    text = pgn.read_text(encoding="utf-8")
 
     def say(line: str) -> None:
         print(line, file=sys.stderr)
