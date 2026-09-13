@@ -16,7 +16,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      # The checkout leaves the token it used in .git/config unless it is told
+      # not to. No job here pushes with git, so no job wants it there.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
@@ -74,6 +78,8 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: dist
@@ -84,7 +90,10 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           # The tag's own message is the release notes, so what the release says
-          # is what the tag says and there is one place to write it.
+          # is what the tag says and there is one place to write it. The fetch
+          # is anonymous, which is why the checkout above can drop its
+          # credential: the repository is public, and gh reads GH_TOKEN rather
+          # than anything git left behind.
           git fetch --force origin "refs/tags/${TAG}:refs/tags/${TAG}"
           git tag -l --format='%(contents)' "$TAG" > notes.md
           gh release create "$TAG" dist/* --title "$TAG" --notes-file notes.md
