@@ -7,7 +7,7 @@ pins this action at is the code that runs.
 
 ```yaml
 - uses: actions/checkout@<sha> # v7.0.1
-- uses: aywrite/mache/actions/setup@<sha> # v0.2.0
+- uses: aywrite/mache/actions/setup@<sha> # v0.1.0
   id: tools
 - run: python3 -m mache.book_slice --openings 34700 --pairs 250 --shards 5 --shard 0 --seed 7
 ```
@@ -30,6 +30,15 @@ pins this action at is the code that runs.
 
 Record the `version` in whatever a run writes about itself. It is what lets a
 figure be read back against the tooling that produced it.
+
+## What fastchess is built as
+
+`build=release`, which is fastchess's own baseline target: `-march=x86-64` and a
+static link. The binary is cached, and a cache is shared by runners with
+different processors, so a binary built for the one that filled the cache is one
+the next runner may not be able to execute. fastchess orchestrates the games and
+the engines do the searching, so nothing measurable is lost by building for the
+baseline.
 
 ## What the books land as
 
