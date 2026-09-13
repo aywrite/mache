@@ -7,7 +7,7 @@ pins this action at is the code that runs.
 
 ```yaml
 - uses: actions/checkout@<sha> # v7.0.1
-- uses: aywrite/mache/actions/setup@<sha> # v0.2.0
+- uses: aywrite/mache/actions/setup@<sha> # v0.1.0
   id: tools
 - run: python3 -m mache.book_slice --openings 34700 --pairs 250 --shards 5 --shard 0 --seed 7
 ```

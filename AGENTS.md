@@ -39,7 +39,7 @@ builds the sdist and the wheel, publishes them and makes the GitHub release.
 There is no moving `v0` tag. A consumer pins the commit a release is tagged at,
 and a tag that moved would leave two releases answering to one name.
 
-The `--json` shape is a contract from `0.2.0` on. `JSON_FORMAT` says which
+The `--json` shape is a contract from `0.1.0` on. `JSON_FORMAT` says which
 shape, fields are added and not removed, and a change that cannot be made that
 way raises the number.
 
