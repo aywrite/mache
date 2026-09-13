@@ -401,12 +401,17 @@ def sequential(sprt: Sprt) -> str:
     """The sprt reading for the report, and what its verdict means."""
     means = {
         "passed": (
-            f"The candidate is stronger by about {number(sprt.elo1)} elo or"
-            " more, at a five percent error rate each way."
+            f"The pairs favour a difference of about {number(sprt.elo1)} elo"
+            f" over one of about {number(sprt.elo0)}, at a five percent error"
+            " rate each way. That is the hypothesis the test prefers and not a"
+            " floor under the difference: the estimate above is what the games"
+            " measured."
         ),
         "failed": (
-            f"The candidate is not stronger by about {number(sprt.elo1)} elo,"
-            " at a five percent error rate each way."
+            f"The pairs favour a difference of about {number(sprt.elo0)} elo"
+            f" over one of about {number(sprt.elo1)}, at a five percent error"
+            " rate each way. That does not show the candidate is weaker, only"
+            " that the games did not favour the larger difference."
         ),
         "inconclusive": (
             "The games so far settle it neither way. Launch another batch with"
