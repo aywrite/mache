@@ -1,0 +1,21 @@
+# The prepare-release job's install, pinned with hashes. Compiled from
+# prepare.in, which says what was asked for and how this file is regenerated.
+# Dependabot watches this directory and bumps the pins here.
+#
+# The workflow installs it with --require-hashes, so every package including
+# every transitive one is fixed to one file.
+git-cliff==2.13.1 \
+    --hash=sha256:08a9cb0ec760e165210ed22fefa295b6549a3520b420db995ccbb3620cbb1fbe \
+    --hash=sha256:17da93dc605cbc48c762770402067fa726437cedbd62514f9caef6e0ccb58a43 \
+    --hash=sha256:1ab059d671565189faa4f3858b2fb42535aa39fe265ad95d84d5c116a2724fc7 \
+    --hash=sha256:2e8d8e420adf6a36b97e0fbdbf2b07e47712199a9baf3675c9a759430243ea26 \
+    --hash=sha256:856d831a0bede9c258229dbd4d4c2b1c0810d8fce3d3882729669e8dc09c72bf \
+    --hash=sha256:a93db30da45967c42df607fbbc2092111fcd576b0ca9e2fbddd3f653d8c71be7 \
+    --hash=sha256:c12276784d280aa6a7148d3e52ff139e891f4c97720cd9be581b19892ea39fe0 \
+    --hash=sha256:c5bb87f6e1db18be09e50c9d59234dc949713e20c2700e94eca378d22ad79719 \
+    --hash=sha256:c8878972e0a6c26d9137fc406a611116239333578d95ac05064d2807920bd83c \
+    --hash=sha256:cd4a08cf3f638ec71d2ed451aa8673bef99e1107a36366153db97ca18d981655 \
+    --hash=sha256:df9f5a2bd16e5225030c9c2362e6ac70b34a906c0fbb83f8cbf5ae46932ba0d2 \
+    --hash=sha256:e92cf470ecbe73f7d2963dfa80e8961a6b76888d0c19949b0f028a28a0a0470c \
+    --hash=sha256:e949ea9c3951ba6037b99eec465162be2584f27f0836ace45f44d6f45650f8c6
+    # via -r .github/requirements/prepare.in

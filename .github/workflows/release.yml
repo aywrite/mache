@@ -7,6 +7,10 @@ name: Release
 on:
   push:
     tags: [ "v*" ]
+  # Run against a tag from the actions tab, either to redo a release or
+  # because tag-release.yml started it: a tag a workflow pushed itself does
+  # not set off the trigger above.
+  workflow_dispatch:
 
 permissions:
   contents: read

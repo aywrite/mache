@@ -31,10 +31,20 @@ accepted. Pull requests are reviewed before they merge.
 
 ## Releasing
 
-The version lives in `mache/__init__.py` and nowhere else. A release is a
-version bump, a merge, and an annotated `vX.Y.Z` tag on the commit that carries
-it. The release workflow refuses a tag that does not match `__version__`, then
-builds the sdist and the wheel, publishes them and makes the GitHub release.
+The version lives in `mache/__init__.py` and nowhere else. Run the Prepare
+release workflow from the actions tab and pick a level of patch, minor or
+major. It bumps the version, prepends the changelog section for it and opens a
+pull request with those two files. Merging that pull request tags `vX.Y.Z` on
+the commit that carries the version and starts the release, which refuses a tag
+that does not match `__version__`, builds the sdist and the wheel, publishes
+them and makes the GitHub release from the tag's message. Closing the pull
+request without merging calls the release off, since nothing is tagged or
+published until it lands.
+
+The release commit is `chore(package): prepare for <version>`. The commit-msg
+hook does not run on a runner, so that scope is chosen by the workflow rather
+than checked by anything. `git-cliff --unreleased` prints what the next section
+would say.
 
 There is no moving `v0` tag. A consumer pins the commit a release is tagged at,
 and a tag that moved would leave two releases answering to one name.
