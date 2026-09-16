@@ -4,11 +4,15 @@
 """The tools a match is read with: the pooled estimate, the ccrl fit, the
 terminations count and the book slice.
 
-They are one package because they read one thing. How a fastchess pgn is split
-into games is written down once, in `pgn`, and the three tools that read one
-read it through there. The pooled estimate reads the terminations count as well,
-for the faults column of its table.
+They are one package because they read one thing. What the tools share sits
+beside them rather than inside one of them: `pgn` is how a fastchess pgn is
+split into games, `elo` is the logistic model both estimators price a score
+with, and the `--json` header every tool prints is built below. The pooled
+estimate reads the terminations count as well, for the faults column of its
+table, and that is the one tool that reads another.
 """
+
+import json
 
 __version__ = "0.1.0"
 
@@ -26,3 +30,17 @@ def tool(command: str) -> dict[str, str]:
     """What produced a --json object, so a figure can be read back against the
     version of the tooling that produced it."""
     return {"name": "mache", "version": __version__, "command": command}
+
+
+def document(command: str, fields: dict) -> dict:
+    """A --json object: the format and what produced it first, then what the
+    command has to say. Every tool builds its object here, so the two fields
+    the contract rests on are written once and sit in the same place in each."""
+    return {"format": JSON_FORMAT, "tool": tool(command), **fields}
+
+
+def print_json(obj: dict) -> None:
+    """The object as the --json modes print it. allow_nan=False rather than
+    the default, so a figure that is not a number fails here rather than being
+    written as NaN or Infinity, which no parser is required to read back."""
+    print(json.dumps(obj, indent=2, allow_nan=False))

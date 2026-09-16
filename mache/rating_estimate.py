@@ -22,12 +22,11 @@ prints the fit as data, in the shape its format names.
 """
 
 import argparse
-import json
 import math
 import sys
 from pathlib import Path
 
-from . import JSON_FORMAT, __version__, elo, pgn, tool
+from . import __version__, document, elo, pgn, print_json
 
 
 def expected(rating: float, opponent: float) -> float:
@@ -210,32 +209,33 @@ def as_json(
 
     The shape is the one the format names, which JSON_FORMAT explains."""
     measured = not estimate.bounded
-    return {
-        "format": JSON_FORMAT,
-        "tool": tool("rating_estimate"),
-        "engine": engine,
-        "ladder": ladder,
-        "pairings": [
-            {
-                "opponent": name,
-                "ccrl": opponent,
-                "wins": w,
-                "draws": d,
-                "losses": loss,
-                "games": w + d + loss,
-                "score": (w + d / 2) / (w + d + loss),
-                "implied": implied(opponent, w + d / 2, w + d + loss),
-            }
-            for name, opponent, w, d, loss in pairings
-        ],
-        "rating": estimate.rating if measured else None,
-        "margin": estimate.margin if measured else None,
-        "games": estimate.games,
-        "bounded": estimate.bounded,
-        "note": note,
-        "remarks": remarks,
-        "line": str(estimate),
-    }
+    return document(
+        "rating_estimate",
+        {
+            "engine": engine,
+            "ladder": ladder,
+            "pairings": [
+                {
+                    "opponent": name,
+                    "ccrl": opponent,
+                    "wins": w,
+                    "draws": d,
+                    "losses": loss,
+                    "games": w + d + loss,
+                    "score": (w + d / 2) / (w + d + loss),
+                    "implied": implied(opponent, w + d / 2, w + d + loss),
+                }
+                for name, opponent, w, d, loss in pairings
+            ],
+            "rating": estimate.rating if measured else None,
+            "margin": estimate.margin if measured else None,
+            "games": estimate.games,
+            "bounded": estimate.bounded,
+            "note": note,
+            "remarks": remarks,
+            "line": str(estimate),
+        },
+    )
 
 
 def read_ladder(spec: str) -> dict[str, float]:
@@ -284,16 +284,7 @@ def main() -> None:
 
     estimate, note = fit(pairings)
     if args.json:
-        # allow_nan=False rather than the default, so a figure that is not a
-        # number fails here rather than being written as one no parser has to
-        # read back
-        print(
-            json.dumps(
-                as_json(args.engine, ladder, pairings, estimate, note, remarks),
-                indent=2,
-                allow_nan=False,
-            )
-        )
+        print_json(as_json(args.engine, ladder, pairings, estimate, note, remarks))
     else:
         if not args.line:
             print("| opponent | ccrl | w-d-l | score | implies |")

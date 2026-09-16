@@ -21,13 +21,12 @@ block.
 """
 
 import argparse
-import json
 import re
 import sys
 from collections import Counter
 from pathlib import Path
 
-from . import JSON_FORMAT, pgn, tool
+from . import document, pgn, print_json
 
 # The wordings fastchess ends the last comment with when an ending fell on one
 # side. The colour is what it names, and the White and Black tags place it. An
@@ -145,6 +144,20 @@ def remark(totals: Counter, blamed: dict[str, Counter]) -> str:
     )
 
 
+def as_json(totals: Counter, blamed: dict[str, Counter]) -> dict:
+    """The counts as data, in the shape the format names, which JSON_FORMAT
+    explains. What went to stderr is here as well, so that reading stdout
+    alone loses nothing."""
+    return document(
+        "match_terminations",
+        {
+            "games": sum(totals.values()),
+            "endings": endings(totals, blamed),
+            "remark": remark(totals, blamed),
+        },
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("pgn", type=Path, help="the games the match played")
@@ -158,23 +171,7 @@ def main() -> None:
 
     totals, blamed = count(args.pgn.read_text(encoding="utf-8"))
     if args.json:
-        # allow_nan=False rather than the default, so a figure that is not a
-        # number fails here rather than being written as one no parser has to
-        # read. There are only counts in this object, and it stays true when
-        # something else is added to it.
-        print(
-            json.dumps(
-                {
-                    "format": JSON_FORMAT,
-                    "tool": tool("match_terminations"),
-                    "games": sum(totals.values()),
-                    "endings": endings(totals, blamed),
-                    "remark": remark(totals, blamed),
-                },
-                indent=2,
-                allow_nan=False,
-            )
-        )
+        print_json(as_json(totals, blamed))
     else:
         print(block(totals, blamed))
     if line := remark(totals, blamed):

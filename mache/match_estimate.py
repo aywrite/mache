@@ -36,14 +36,13 @@ report.
 """
 
 import argparse
-import json
 import math
 import re
 import sys
 from collections import Counter
 from pathlib import Path
 
-from . import JSON_FORMAT, __version__, elo, match_terminations, pgn, tool
+from . import __version__, document, elo, match_terminations, pgn, print_json
 
 # what a result tag is worth to the player of the white pieces
 RESULTS = {"1-0": 1.0, "1/2-1/2": 0.5, "0-1": 0.0}
@@ -595,9 +594,7 @@ def as_json(
     totals, blamed = match_terminations.count(text)
     counted = Counter(score for shard in shards for score in shard.pairs)
     fault = match_terminations.remark(totals, blamed)
-    return {
-        "format": JSON_FORMAT,
-        "tool": tool("match_estimate"),
+    fields = {
         "candidate": candidate,
         "baseline": baseline,
         "tc": tc,
@@ -647,6 +644,7 @@ def as_json(
         "line": f"{estimate}, {sprt}" if sprt else str(estimate),
         "trailer": trailer(estimate, tc, baseline, sprt),
     }
+    return document("match_estimate", fields)
 
 
 def read_shards(paths: list[Path], candidate: str) -> tuple[list[Shard], str]:
@@ -739,16 +737,9 @@ def main() -> None:
     elif args.line:
         print(f"{estimate}, {sprt}" if sprt else str(estimate))
     elif args.json:
-        # allow_nan=False rather than the default, so a figure that is not a
-        # number fails here rather than being written as one no parser has to
-        # read back
-        print(
-            json.dumps(
-                as_json(
-                    shards, estimate, text, args.candidate, args.baseline, args.tc, sprt
-                ),
-                indent=2,
-                allow_nan=False,
+        print_json(
+            as_json(
+                shards, estimate, text, args.candidate, args.baseline, args.tc, sprt
             )
         )
     else:
