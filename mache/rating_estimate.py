@@ -27,31 +27,24 @@ import math
 import sys
 from pathlib import Path
 
-from . import JSON_FORMAT, __version__, pgn, tool
-
-LN10_OVER_400 = math.log(10) / 400
-# The 95% interval, in standard errors. Both tools print ±, so both read this:
-# the pooled match estimate imports it from here rather than keeping a second
-# copy that could drift to a different scale under the same symbol.
-CONFIDENCE = 1.96
-# A pairing that ends 25-0 puts no upper bound on the winner, so both the
-# implied rating and the search for the fitted one stop this far out rather than
-# running off to wherever the bracket happens to end.
-MAX_IMPLIED = 1200.0
+from . import JSON_FORMAT, __version__, elo, pgn, tool
 
 
 def expected(rating: float, opponent: float) -> float:
-    return 1.0 / (1.0 + 10 ** ((opponent - rating) / 400))
+    """The score the model expects of a rating against an opponent."""
+    return elo.expected(rating - opponent)
 
 
 def implied(opponent: float, score: float, games: int) -> float:
-    """The rating a single pairing on its own points at."""
+    """The rating a single pairing on its own points at. A pairing that ends
+    25-0 puts no upper bound on the winner, so it stops where the model does
+    rather than running off."""
     fraction = score / games
     if fraction <= 0.0:
-        return opponent - MAX_IMPLIED
+        return opponent - elo.MAX_ELO
     if fraction >= 1.0:
-        return opponent + MAX_IMPLIED
-    return opponent - 400 * math.log10(1 / fraction - 1)
+        return opponent + elo.MAX_ELO
+    return opponent + elo.difference(fraction)
 
 
 def chi_square_95(dof: int) -> float:
@@ -95,7 +88,7 @@ def fit(pairings: list[tuple[str, float, int, int, int]]) -> tuple[Estimate, str
     # The expected score only rises with the rating, so bisection cannot miss.
     # The bracket stops where a single pairing would, because past that point
     # the games say nothing and the answer would be the bracket, not the fit.
-    low, high = min(opponents) - MAX_IMPLIED, max(opponents) + MAX_IMPLIED
+    low, high = min(opponents) - elo.MAX_ELO, max(opponents) + elo.MAX_ELO
     for _ in range(200):
         mid = (low + high) / 2
         total = sum(
@@ -122,14 +115,14 @@ def fit(pairings: list[tuple[str, float, int, int, int]]) -> tuple[Estimate, str
         spread += games * max((w + d / 4) / games - mean * mean, 0.0)
         chance = expected(rating, opponent)
         modelled += games * chance * (1 - chance)
-        slope += games * LN10_OVER_400 * chance * (1 - chance)
+        slope += games * (elo.LN10 / 400) * chance * (1 - chance)
     # Every game going the same way inside every pairing leaves no wobble to
     # measure, which is not the same as there being none, so fall back to the
     # wobble the fitted rating would predict rather than report no doubt at all.
     if spread == 0.0:
         spread = modelled
     per_game = spread / played
-    margin = CONFIDENCE * math.sqrt(spread) / slope
+    margin = elo.CONFIDENCE * math.sqrt(spread) / slope
 
     # Whether one rating describes all of the pairings, which is a different
     # question from how precisely it is pinned down. Comparing each pairing's

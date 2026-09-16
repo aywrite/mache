@@ -15,7 +15,7 @@ import pytest
 from conftest import command
 
 import mache
-from mache import match_estimate, rating_estimate
+from mache import elo, match_estimate, rating_estimate
 
 # the command line a caller runs, which is what the action's PYTHONPATH makes work
 COMMAND = command("rating_estimate")
@@ -91,7 +91,11 @@ class TestFit:
         assert str(estimate).startswith("1791 ±231 (95%)")
 
     def test_the_two_tools_read_one_confidence(self):
-        assert match_estimate.CONFIDENCE == rating_estimate.CONFIDENCE
+        # neither tool keeps a factor of its own: both read the model's, so a
+        # ± printed by either is 1.96 standard errors and nothing else
+        assert not hasattr(rating_estimate, "CONFIDENCE")
+        assert not hasattr(match_estimate, "CONFIDENCE")
+        assert elo.CONFIDENCE == 1.96
 
     def test_a_sweep_is_reported_as_a_bound_not_a_number(self):
         estimate, _ = rating_estimate.fit([("a", 1600, 10, 0, 0), ("b", 1700, 4, 0, 0)])

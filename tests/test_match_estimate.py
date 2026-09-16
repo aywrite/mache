@@ -21,7 +21,7 @@ import pytest
 from conftest import command
 
 import mache
-from mache import match_estimate
+from mache import elo, match_estimate
 
 # the command line a caller runs, which is what the action's PYTHONPATH makes work
 COMMAND = command("match_estimate")
@@ -738,9 +738,9 @@ class TestJson:
         assert "Infinity" not in result.stdout
         written = json.loads(result.stdout)
         assert written["bounded"] == "above +1200"
-        assert written["elo"] == match_estimate.MAX_ELO
+        assert written["elo"] == elo.MAX_ELO
         assert written["margin"] is None
-        assert written["low"] == match_estimate.MAX_ELO
+        assert written["low"] == elo.MAX_ELO
         assert written["high"] is None
 
     def test_a_match_with_no_complete_pair_states_no_figure(self, tmp_path):

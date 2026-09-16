@@ -43,23 +43,7 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-from . import (
-    JSON_FORMAT,
-    __version__,
-    match_terminations,
-    pgn,
-    rating_estimate,
-    tool,
-)
-
-LN10 = math.log(10)
-# the 95% interval, in standard errors, defined beside the other ± this tooling
-# prints so that the two cannot drift apart under one symbol
-CONFIDENCE = rating_estimate.CONFIDENCE
-# A match that went one way throughout bounds the difference from one side
-# only. This is as far out as it is worth reading, and is where the rating
-# estimate stops its own extrapolation.
-MAX_ELO = rating_estimate.MAX_IMPLIED
+from . import JSON_FORMAT, __version__, elo, match_terminations, pgn, tool
 
 # what a result tag is worth to the player of the white pieces
 RESULTS = {"1-0": 1.0, "1/2-1/2": 0.5, "0-1": 0.0}
@@ -202,9 +186,13 @@ class Estimate:
         self.paired = sum(pair_scores) / (2 * self.pairs)
 
         if self.paired <= 0.0 or self.paired >= 1.0:
+            # the model has no figure for a score of nought or one, so the
+            # difference is bounded from one side, as far out as the model reads
             above = self.paired >= 1.0
-            self.elo = MAX_ELO if above else -MAX_ELO
-            self.bounded = f"above +{MAX_ELO:.0f}" if above else f"below -{MAX_ELO:.0f}"
+            self.elo = elo.MAX_ELO if above else -elo.MAX_ELO
+            self.bounded = (
+                f"above +{elo.MAX_ELO:.0f}" if above else f"below -{elo.MAX_ELO:.0f}"
+            )
             self.low = self.elo if above else -math.inf
             self.high = math.inf if above else self.elo
             self.los = 1.0 if above else 0.0
@@ -223,9 +211,9 @@ class Estimate:
             self.modelled = True
         error = math.sqrt(variance / self.pairs)
 
-        self.elo = -400 * math.log10(1 / self.paired - 1)
-        slope = 400 / (LN10 * self.paired * (1 - self.paired))
-        self.margin = CONFIDENCE * error * slope
+        self.elo = elo.difference(self.paired)
+        slope = 400 / (elo.LN10 * self.paired * (1 - self.paired))
+        self.margin = elo.CONFIDENCE * error * slope
         self.low, self.high = self.elo - self.margin, self.elo + self.margin
         self.los = 0.5 * (1 + math.erf((self.paired - 0.5) / (error * math.sqrt(2))))
 
@@ -235,11 +223,6 @@ class Estimate:
         if self.margin is None:
             return f"{self.bounded} Elo ({self.games} games)"
         return f"{round(self.elo):+d} ±{round(self.margin)} Elo ({self.games} games)"
-
-
-def expected_score(elo: float) -> float:
-    """The score the logistic model expects from an elo difference."""
-    return 1 / (1 + 10 ** (-elo / 400))
 
 
 def likeliest(observed: list[float], mean: float) -> list[float]:
@@ -282,8 +265,8 @@ def log_likelihood_ratio(counts: list[int], elo0: float, elo1: float) -> float:
     counted = [count or REGULARISED for count in counts]
     total = sum(counted)
     observed = [count / total for count in counted]
-    under0 = likeliest(observed, expected_score(elo0))
-    under1 = likeliest(observed, expected_score(elo1))
+    under0 = likeliest(observed, elo.expected(elo0))
+    under1 = likeliest(observed, elo.expected(elo1))
     return total * sum(
         phat * (math.log(one) - math.log(zero))
         for phat, zero, one in zip(observed, under0, under1)
@@ -730,10 +713,10 @@ def main() -> None:
     if args.elo0 is None and any(prior):
         parser.error("--prior-pairs carries a test on, so it wants --elo0 and --elo1")
     if args.elo0 is not None:
-        for name, elo in (("--elo0", args.elo0), ("--elo1", args.elo1)):
+        for name, hypothesis in (("--elo0", args.elo0), ("--elo1", args.elo1)):
             # a hypothesis off the end of the model, or not a number at all,
             # leaves the fit with nothing to solve for
-            if not math.isfinite(elo) or abs(elo) > MAX_HYPOTHESIS:
+            if not math.isfinite(hypothesis) or abs(hypothesis) > MAX_HYPOTHESIS:
                 parser.error(
                     f"{name} is an elo difference, so it is between"
                     f" -{MAX_HYPOTHESIS} and {MAX_HYPOTHESIS}"
