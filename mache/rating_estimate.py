@@ -24,11 +24,10 @@ prints the fit as data, in the shape its format names.
 import argparse
 import json
 import math
-import re
 import sys
 from pathlib import Path
 
-from . import JSON_FORMAT, __version__, tool
+from . import JSON_FORMAT, __version__, pgn, tool
 
 LN10_OVER_400 = math.log(10) / 400
 # The 95% interval, in standard errors. Both tools print ±, so both read this:
@@ -39,14 +38,6 @@ CONFIDENCE = 1.96
 # implied rating and the search for the fitted one stop this far out rather than
 # running off to wherever the bracket happens to end.
 MAX_IMPLIED = 1200.0
-
-# Games are read one at a time rather than by scanning the whole file for tags,
-# so that a game truncated by an interrupted match cannot pair its opponent with
-# the next game's result. Both are also what match_terminations.py and
-# match_estimate.py read a pgn with, so how a fastchess game is picked apart is
-# written down once; the fit here has no use for Termination or for Round.
-RECORD = re.compile(r"^\[Event ", re.MULTILINE)
-TAG = re.compile(r'^\[(White|Black|Result|Termination|Round) "([^"]*)"\]', re.MULTILINE)
 
 
 def expected(rating: float, opponent: float) -> float:
@@ -162,7 +153,7 @@ def fit(pairings: list[tuple[str, float, int, int, int]]) -> tuple[Estimate, str
 
 
 def read_pairings(
-    pgn: Path,
+    games: Path,
     engine: str,
     ladder: dict[str, float],
     remarks: list[str] | None = None,
@@ -172,19 +163,16 @@ def read_pairings(
     `remarks` as well when a caller wants to print it somewhere else too."""
     tally: dict[str, list[int]] = {name: [0, 0, 0] for name in ladder}
     unfinished = 0
-    text = pgn.read_text(encoding="utf-8")
+    text = games.read_text(encoding="utf-8")
 
     def say(line: str) -> None:
         print(line, file=sys.stderr)
         if remarks is not None:
             remarks.append(line)
 
-    for record in RECORD.split(text)[1:]:
-        tags = dict(TAG.findall(record))
-        white, black, result = tags.get("White"), tags.get("Black"), tags.get("Result")
-        # a game still in progress when the match was interrupted has no result
-        # to count, and no business borrowing the next one's
-        if not (white and black) or engine not in (white, black):
+    for tags, _ in pgn.games(text):
+        white, black, result = tags["White"], tags["Black"], tags.get("Result")
+        if engine not in (white, black):
             continue
         opponent = black if white == engine else white
         if opponent not in tally:

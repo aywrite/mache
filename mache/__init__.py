@@ -4,9 +4,10 @@
 """The tools a match is read with: the pooled estimate, the ccrl fit, the
 terminations count and the book slice.
 
-They are one package because they read one thing. The fit owns the two regular
-expressions a fastchess pgn is split into games with, and the estimate reads
-the terminations count as well as the fit.
+They are one package because they read one thing. How a fastchess pgn is split
+into games is written down once, in `pgn`, and the three tools that read one
+read it through there. The pooled estimate reads the terminations count as well,
+for the faults column of its table.
 """
 
 __version__ = "0.1.0"

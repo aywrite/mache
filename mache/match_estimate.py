@@ -43,13 +43,14 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-from . import JSON_FORMAT, __version__, match_terminations, rating_estimate, tool
-
-# The game split and the tag parse the rest of this tooling reads a fastchess
-# pgn with. Round is wanted here and by nothing else: fastchess writes it on
-# every game, and with -repeat the two games of a round share an opening.
-RECORD = rating_estimate.RECORD
-TAG = rating_estimate.TAG
+from . import (
+    JSON_FORMAT,
+    __version__,
+    match_terminations,
+    pgn,
+    rating_estimate,
+    tool,
+)
 
 LN10 = math.log(10)
 # the 95% interval, in standard errors, defined beside the other ± this tooling
@@ -99,13 +100,13 @@ def read_games(text: str, candidate: str) -> tuple[dict[str, list[float]], int]:
     The colours are read from the tags rather than assumed, since `-repeat`
     plays the second game of every round the other way round. A game with no
     result is one the match was stopped in the middle of; it is counted and
-    left out."""
+    left out. fastchess writes Round on every game, and with `-repeat` the two
+    games of a round share an opening, which is what the pairing reads."""
     rounds: dict[str, list[float]] = {}
     unfinished = 0
-    for record in RECORD.split(text)[1:]:
-        tags = dict(TAG.findall(record))
-        white, black, result = tags.get("White"), tags.get("Black"), tags.get("Result")
-        if not (white and black) or candidate not in (white, black):
+    for tags, _ in pgn.games(text):
+        white, black, result = tags["White"], tags["Black"], tags.get("Result")
+        if candidate not in (white, black):
             continue
         if result not in RESULTS:
             unfinished += 1

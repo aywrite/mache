@@ -27,15 +27,7 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-from . import JSON_FORMAT, rating_estimate, tool
-
-# The game split and the tag parse are the ones the rating estimate already
-# reads a fastchess pgn with, which take a game at a time so that one truncated
-# by an interrupted match cannot borrow the next one's tags.
-RECORD = rating_estimate.RECORD
-TAG = rating_estimate.TAG
-
-COMMENT = re.compile(r"\{([^{}]*)\}")
+from . import JSON_FORMAT, pgn, tool
 
 # The wordings fastchess ends the last comment with when an ending fell on one
 # side. The colour is what it names, and the White and Black tags place it. An
@@ -92,13 +84,9 @@ def count(text: str) -> tuple[Counter, dict[str, Counter]]:
     `min=true` would be all of."""
     totals: Counter = Counter()
     blamed: dict[str, Counter] = {}
-    for record in RECORD.split(text)[1:]:
-        tags = dict(TAG.findall(record))
-        white, black = tags.get("White"), tags.get("Black")
-        if not (white and black):
-            continue
-        comments = COMMENT.findall(record)
-        reason = comments[-1] if comments else ""
+    for tags, record in pgn.games(text):
+        white, black = tags["White"], tags["Black"]
+        reason = pgn.reason(record)
         name = kind(tags.get("Termination", ""), reason)
         totals[name] += 1
         if (colour := BLAMED.search(reason)) is not None:

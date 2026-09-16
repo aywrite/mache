@@ -47,7 +47,7 @@ def test_every_source_file_states_its_licence():
 
 def test_the_walk_actually_finds_the_sources():
     # a walk that silently matched nothing would pass the test above forever.
-    # It finds thirteen today, which is the five modules, the seven test files
+    # It finds fifteen today, which is the six modules, the eight test files
     # and the fixture book table. The floor is under that, because what is being
     # caught is a walk that has stopped working rather than one that drifted by
     # a file.
