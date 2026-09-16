@@ -28,7 +28,7 @@ import re
 import sys
 from pathlib import Path
 
-from . import JSON_FORMAT, tool
+from . import JSON_FORMAT, __version__, tool
 
 LN10_OVER_400 = math.log(10) / 400
 # The 95% interval, in standard errors. Both tools print ±, so both read this:
@@ -326,6 +326,12 @@ def main() -> None:
                 )
             print()
         print(estimate)
+        if not args.line:
+            print()
+            # Which fit priced these games, for the reason match_estimate's
+            # report carries the same line: a figure kept without its version
+            # cannot be told apart from one a later version would print.
+            print(f"Read by mache {__version__}.")
     if note:
         print(f"note: {note}", file=sys.stderr)
 

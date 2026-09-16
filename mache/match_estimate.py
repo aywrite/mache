@@ -43,7 +43,7 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-from . import JSON_FORMAT, match_terminations, rating_estimate, tool
+from . import JSON_FORMAT, __version__, match_terminations, rating_estimate, tool
 
 # The game split and the tag parse the rest of this tooling reads a fastchess
 # pgn with. Round is wanted here and by nothing else: fastchess writes it on
@@ -548,6 +548,11 @@ def report(
         "```",
         match_terminations.block(*match_terminations.count(text)),
         "```",
+        "",
+        # Which estimator priced these games. A later version can price the
+        # same games differently, and a figure kept without its version cannot
+        # be told apart from one the current version would print.
+        f"Read by mache {__version__}.",
     ]
     return "\n".join(lines)
 

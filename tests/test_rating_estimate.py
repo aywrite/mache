@@ -213,6 +213,16 @@ class TestCommandLine:
         assert result.stdout.count("\n") == 1
         assert "on the ccrl blitz scale (4 games)" in result.stdout
 
+    def test_the_table_names_the_version_that_priced_the_games(self, tmp_path):
+        result = self.run(tmp_path, self.GAMES)
+        assert result.stdout.rstrip().splitlines()[-1] == (
+            f"Read by mache {mache.__version__}."
+        )
+
+    def test_line_mode_stays_one_line_and_carries_no_version(self, tmp_path):
+        result = self.run(tmp_path, self.GAMES, "--line")
+        assert "mache" not in result.stdout
+
     def test_no_games_for_the_engine_is_an_error(self, tmp_path):
         result = self.run(tmp_path, game("a", "b", "1-0"))
         assert result.returncode != 0

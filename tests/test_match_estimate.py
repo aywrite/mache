@@ -310,6 +310,11 @@ class TestReport:
         assert "1 of the games had no partner" in printed
         assert "1 games had no result and are left out" in printed
 
+    def test_the_report_names_the_version_that_priced_the_games(self, tmp_path):
+        shards, estimate, text = pooled(tmp_path, [drawn(1) + pair(2)])
+        printed = match_estimate.report(shards, estimate, text)
+        assert printed.splitlines()[-1] == f"Read by mache {mache.__version__}."
+
 
 class TestCommandLine:
     def run(self, tmp_path, texts, *arguments):

@@ -85,9 +85,10 @@ match-estimate strength-1-1-shard-*/games.pgn \
 | pooled | 150 | 58.0% | 1 |
 ```
 
-The block `match-terminations` prints follows that. `--tc` and `--baseline`
-are recorded rather than read, so a baseline that is not a release tag can go
-in as its sha.
+The block `match-terminations` prints follows that, and the last line of the
+report names the version that read the games. `--tc` and `--baseline` are
+recorded rather than read, so a baseline that is not a release tag can go in as
+its sha.
 
 `--elo0` and `--elo1` read the same pairs a second way, as a sequential test:
 
@@ -171,9 +172,11 @@ rating-estimate gauntlet.pgn arche-0.5 \
 | winter-0.7 | 1978 | 7-6-17 | 33.3% | 1858 |
 
 1873 ±56 (95%) on the ccrl blitz scale (120 games)
+
+Read by mache 0.1.0.
 ```
 
-`--line` prints that last line and nothing else. `--json` prints the fit, the
+`--line` prints the estimate and nothing else. `--json` prints the fit, the
 ladder it was given and a record per opponent, in the same format 1.
 
 ### `match-terminations`
@@ -253,6 +256,17 @@ belongs to would be guessing at that.
 
 An accumulator that keeps the counts in an artifact is a later addition if
 anyone wants one. It is not missing by accident.
+
+## The version is in the output
+
+A change to the estimator can price the same games differently. So a report
+names the version that read them, `--json` carries it in its `tool` object, and
+the composite action hands the version on the path back as an output, for a
+caller to write into whatever it records about a run. A figure kept without it
+cannot be checked against the code that produced it.
+
+`--line` and `--trailer` are one line each and carry no version. They are
+quoted beside a report or a manifest that does.
 
 ## Reading a rating estimate
 
