@@ -237,6 +237,23 @@ the next, so repeated runs accumulate into one test rather than several.
 Openings follow from a seed rather than a shuffle, so a schedule can be played
 again from what the run recorded.
 
+## The test keeps no state
+
+mache stores nothing between runs. The pairs the earlier batches of a
+sequential test played are an argument: a run prints them at the end of its
+verdict and the next run is handed them back with `--prior-pairs`. That is a
+decision and not an omission.
+
+Carrying five numbers by hand is the price. A caller that loses them has lost
+the test and has to start it again. What it buys is that a run says on its face
+what it was judged over, so a reader checks the count against the batches that
+were played rather than trusting a file nobody looked at. Stored state would
+also have to be one thing per test, and a tool that cannot see which test a run
+belongs to would be guessing at that.
+
+An accumulator that keeps the counts in an artifact is a later addition if
+anyone wants one. It is not missing by accident.
+
 ## Reading a rating estimate
 
 `rating-estimate` holds every opponent at its published figure and fits the one
