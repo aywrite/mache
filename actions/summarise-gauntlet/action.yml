@@ -1,0 +1,80 @@
+name: Summarise a gauntlet
+description: >
+  Pool every rung's games, fit a rating against the ladder they were played
+  on, and write the run's summary with the caveat a placement has to be read
+  against.
+
+inputs:
+  games:
+    description: >
+      The directory the rungs' artifacts were downloaded into. Every
+      `games.pgn` under it is counted.
+    default: rungs
+  engine_name:
+    description: The name the engine played under, which is the name in the games.
+    required: true
+  candidate_sha:
+    description: The commit the engine was built from.
+    required: true
+  ladder_spec:
+    description: >
+      The opponents and their ratings, as `name:rating` pairs carrying the
+      names the games were played under. plan-ladder produces this.
+    required: true
+  rungs:
+    description: >
+      How many rungs were asked for. The summary says how many arrived, which
+      is how a lost rung is visible rather than silent.
+    required: true
+  time_control:
+    description: The time control the games were played at.
+    required: true
+  rating_list:
+    description: >
+      The list the opponents' ratings come from, named in the summary so a
+      figure is not quoted without saying what scale it is on.
+    default: "[ccrl](https://computerchess.org.uk/) blitz"
+  rating_time_control:
+    description: >
+      The time control the opponents' published ratings were measured at. It
+      is named in the caveat, because a placement read against games played at
+      a different control is the systematic error that caveat is about. Left
+      out of the sentence when empty.
+    default: ""
+  provenance:
+    description: >
+      One paragraph from the caller saying where the games are kept and what
+      replays their schedule.
+    default: ""
+
+outputs:
+  line:
+    description: The one line a release note carries.
+    value: ${{ steps.summary.outputs.line }}
+
+runs:
+  using: composite
+  steps:
+    - name: Work out the rating
+      id: summary
+      shell: bash
+      env:
+        GAMES: ${{ inputs.games }}
+        ENGINE_NAME: ${{ inputs.engine_name }}
+        CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        LADDER_SPEC: ${{ inputs.ladder_spec }}
+        RUNGS: ${{ inputs.rungs }}
+        TIME_CONTROL: ${{ inputs.time_control }}
+        RATING_LIST: ${{ inputs.rating_list }}
+        RATING_TIME_CONTROL: ${{ inputs.rating_time_control }}
+        PROVENANCE: ${{ inputs.provenance }}
+      run: |
+        # the table itself goes to the log, so this is not redirected
+        "${GITHUB_ACTION_PATH}/summarise.sh" "$GAMES" outputs.txt \
+          2> remarks.txt \
+          || { echo "::error::$(head -1 remarks.txt)"; cat remarks.txt; exit 1; }
+        while read -r remark; do
+          echo "::warning::${remark}"
+        done < remarks.txt
+        cat outputs.txt >> "$GITHUB_OUTPUT"
+        echo "::notice::$(sed -n 's/^line=Estimated rating | //p' outputs.txt)"

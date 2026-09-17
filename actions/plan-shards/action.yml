@@ -1,0 +1,104 @@
+name: Plan a sharded match
+description: >
+  Work out the shard list and the pairs each shard plays, check the sprt
+  inputs and the book name before a runner builds anything, and work out how
+  long a shard should be given.
+
+inputs:
+  games:
+    description: How many games the match is asked for in total.
+    required: true
+  shards:
+    description: How many jobs to split them across.
+    default: "1"
+  sprt:
+    description: >
+      Whether this batch is part of a sequential test. It changes what is
+      checked here; the test itself is judged by the summary over the pooled
+      pairs, never by a shard.
+    default: "false"
+  elo0:
+    description: The null the sequential test is against.
+    default: "0"
+  elo1:
+    description: The alternative the sequential test is against.
+    default: "5"
+  prior_pairs:
+    description: >
+      The pair counts of the batches already played, as the last summary
+      printed them. Empty for the first batch.
+    default: ""
+  book:
+    description: The book name the run asked for.
+    required: true
+  book_table:
+    description: >
+      The book table in the calling repository's checkout, as
+      actions/setup/README.md describes it.
+    default: scripts/book.sh
+  max_match_minutes:
+    description: >
+      The wall clock cap a shard plays under. The job timeout this returns is
+      half an hour over it, for the builds and the upload.
+    required: true
+
+outputs:
+  pairs:
+    description: The pairs each shard plays. Whole pairs, so a run plays a little under what it asked for.
+    value: ${{ steps.plan.outputs.pairs }}
+  shards:
+    description: The shard list, as json for a matrix to read with fromJSON.
+    value: ${{ steps.plan.outputs.shards }}
+  count:
+    description: How many shards there are.
+    value: ${{ steps.plan.outputs.count }}
+  book:
+    description: The book name, once the table has been asked whether it knows it.
+    value: ${{ steps.book.outputs.book }}
+  play_timeout:
+    description: >
+      Minutes to give a play job, for timeout-minutes to read with fromJSON.
+      A job timeout takes an expression and expressions have no arithmetic,
+      which is why this is worked out here.
+    value: ${{ steps.timeout.outputs.minutes }}
+
+runs:
+  using: composite
+  steps:
+    - name: Work out the shards
+      id: plan
+      shell: bash
+      env:
+        GAMES: ${{ inputs.games }}
+        SHARDS: ${{ inputs.shards }}
+        SPRT: ${{ inputs.sprt }}
+        ELO0: ${{ inputs.elo0 }}
+        ELO1: ${{ inputs.elo1 }}
+        PRIOR_PAIRS: ${{ inputs.prior_pairs }}
+      run: |
+        "${GITHUB_ACTION_PATH}/plan.sh" "$GAMES" "$SHARDS" "$SPRT" \
+          "$ELO0" "$ELO1" "$PRIOR_PAIRS" > plan.txt 2> remarks.txt \
+          || { echo "::error::$(cat remarks.txt)"; exit 1; }
+        while read -r remark; do
+          echo "::notice::${remark}"
+        done < remarks.txt
+        cat plan.txt >> "$GITHUB_OUTPUT"
+
+    - name: Work out the book
+      id: book
+      shell: bash
+      env:
+        BOOK: ${{ inputs.book }}
+        BOOK_TABLE: ${{ inputs.book_table }}
+      run: |
+        "${GITHUB_ACTION_PATH}/../../bin/check_book.sh" "$BOOK_TABLE" "$BOOK" \
+          2> remarks.txt || { echo "::error::$(cat remarks.txt)"; exit 1; }
+        echo "::notice::playing the ${BOOK} book"
+        echo "book=${BOOK}" >> "$GITHUB_OUTPUT"
+
+    - name: Work out how long a shard is given
+      id: timeout
+      shell: bash
+      env:
+        MAX_MATCH_MINUTES: ${{ inputs.max_match_minutes }}
+      run: echo "minutes=$((MAX_MATCH_MINUTES + 30))" >> "$GITHUB_OUTPUT"

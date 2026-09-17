@@ -147,6 +147,9 @@ runs:
       run: | # zizmor: ignore[github-env]
         root=$(cd "${GITHUB_ACTION_PATH}/../.." && pwd)
         echo "PYTHONPATH=${root}${PYTHONPATH:+:${PYTHONPATH}}" >> "$GITHUB_ENV"
+        # bin/ holds the shell tools a caller may want to run as a step of
+        # its own rather than through an action.
+        echo "${root}/bin" >> "$GITHUB_PATH"
         version=$(PYTHONPATH="${root}${PYTHONPATH:+:${PYTHONPATH}}" \
           python3 -c 'import mache; print(mache.__version__)')
         echo "version=${version}" >> "$GITHUB_OUTPUT"

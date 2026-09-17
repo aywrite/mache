@@ -1,0 +1,61 @@
+name: Resolve a ref
+description: >
+  Turn a branch, tag, commit or pull request number into a commit, and refuse
+  under a trigger where the ref was not chosen by somebody who can already
+  push.
+
+inputs:
+  ref:
+    description: >
+      What to resolve. A number is a pull request, whose head a checkout does
+      not fetch. Anything else is a branch, a tag or a commit. May be empty,
+      in which case `when_empty` decides.
+    default: ""
+  when_empty:
+    description: >
+      What an empty `ref` means. `head` is the commit the workflow is running
+      on. `last-release` is the newest release tag that is neither a
+      pre-release nor the tag being released, and is empty when there is none.
+      `fail` stops the job.
+    default: fail
+  release_glob:
+    description: The tag pattern `last-release` looks through.
+    default: v[0-9]*
+  label:
+    description: >
+      What this side is called when the resolve fails, so that a workflow
+      resolving two of them says which one was at fault.
+    default: the ref
+
+outputs:
+  name:
+    description: >
+      What to call this side in a report: the tag or branch that was asked
+      for, rather than the commit it resolved to today. Empty when
+      `last-release` found no release.
+    value: ${{ steps.resolve.outputs.name }}
+  sha:
+    description: The commit. Empty when `last-release` found no release.
+    value: ${{ steps.resolve.outputs.sha }}
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve the ref
+      id: resolve
+      shell: bash
+      env:
+        REF: ${{ inputs.ref }}
+        WHEN_EMPTY: ${{ inputs.when_empty }}
+        RELEASE_GLOB: ${{ inputs.release_glob }}
+        LABEL: ${{ inputs.label }}
+      run: |
+        # the script prints the name and the sha on two lines, so a name
+        # holding a space or an empty sha cannot be mistaken for the other
+        resolved=$("${GITHUB_ACTION_PATH}/resolve.sh" \
+          "$REF" "$WHEN_EMPTY" "$RELEASE_GLOB") \
+          || { echo "::error::cannot resolve ${LABEL} ${REF:-from its default}"; exit 1; }
+        {
+          echo "name=$(sed -n 1p <<< "$resolved")"
+          echo "sha=$(sed -n 2p <<< "$resolved")"
+        } >> "$GITHUB_OUTPUT"

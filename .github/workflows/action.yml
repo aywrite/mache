@@ -1,9 +1,13 @@
 name: Action
 
-# The action is the half of this repository no unit test reaches: it builds
-# fastchess, fetches a book and sets an environment file, and all three of those
-# are only true on a runner. This runs it against a book table of one book and
-# checks what a consumer depends on.
+# The actions are the half of this repository no unit test reaches: they build
+# fastchess, fetch a book, set environment files and read job outputs, and none
+# of those are true off a runner. This runs them against a book table of one
+# book and checks what a consumer depends on.
+#
+# play-shard is not here. Playing anything needs an engine, and a fixture engine
+# to play is its own piece of work. What a runner proves about it until then is
+# proved by the repository that consumes it.
 
 on:
   push:
@@ -100,3 +104,72 @@ jobs:
         run: |
           python3 -c 'from mache import match_estimate, rating_estimate'
           test "$REPORTED" = "$(python3 -c 'import mache; print(mache.__version__)')"
+
+  orchestration:
+    # The actions a caller runs before anything is built. Each is checked
+    # through its outputs, because outputs are the part a workflow author
+    # writes against and the part a unit test on the scripts cannot see.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # resolve-ref looks through the tags, and a shallow clone has none
+          fetch-depth: 0
+
+      - uses: ./actions/setup # zizmor: ignore[self-repository]
+        with:
+          estimator_only: true
+
+      - name: The shell tools the setup action put on the path are runnable
+        run: |
+          command -v resolve_ref.sh
+
+      - uses: ./actions/resolve-ref # zizmor: ignore[self-repository]
+        id: head
+        with:
+          ref: ""
+          when_empty: head
+
+      - uses: ./actions/plan-shards # zizmor: ignore[self-repository]
+        id: shards
+        with:
+          games: 500
+          shards: 4
+          book: 8moves_v3
+          book_table: tests/fixtures/books.sh
+          max_match_minutes: 150
+
+      - uses: ./actions/plan-ladder # zizmor: ignore[self-repository]
+        id: ladder
+        with:
+          games: 50
+          # the book table stands in as an opponent table here: the only verb
+          # plan-ladder asks of it is `list`, and a name is a name
+          ladder: 8moves_v3:v1:2500,8moves_v3:v2:2600
+          opponent_table: tests/fixtures/books.sh
+          book: 8moves_v3
+          book_table: tests/fixtures/books.sh
+          max_match_minutes: 150
+
+      - name: The outputs are what a caller would write against
+        env:
+          HEAD_SHA: ${{ steps.head.outputs.sha }}
+          PAIRS: ${{ steps.shards.outputs.pairs }}
+          SHARD_LIST: ${{ steps.shards.outputs.shards }}
+          SHARD_TIMEOUT: ${{ steps.shards.outputs.play_timeout }}
+          BOOK: ${{ steps.shards.outputs.book }}
+          RUNGS: ${{ steps.ladder.outputs.rungs }}
+          SPEC: ${{ steps.ladder.outputs.spec }}
+        run: |
+          test "$HEAD_SHA" = "$GITHUB_SHA"
+          test "$PAIRS" = "62"
+          test "$SHARD_LIST" = "[0,1,2,3]"
+          test "$SHARD_TIMEOUT" = "180"
+          test "$BOOK" = "8moves_v3"
+          test "$SPEC" = "8moves_v3-v1:2500,8moves_v3-v2:2600"
+          echo "$RUNGS"
