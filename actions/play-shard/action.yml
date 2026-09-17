@@ -1,0 +1,155 @@
+name: Play one shard of a match
+description: >
+  Work out which openings this shard plays, play them, and hand back what the
+  caller needs to record. It does not build the engines and it does not write
+  the manifest: a build belongs to the engine, and a manifest is the calling
+  repository's own record of its run.
+
+inputs:
+  candidate:
+    description: What to call one side in the games.
+    required: true
+  candidate_binary:
+    description: That side's binary, as fastchess is given it, relative to `workdir`.
+    required: true
+  opponent:
+    description: What to call the other side.
+    required: true
+  opponent_binary:
+    description: The other side's binary, relative to `workdir`.
+    required: true
+  book:
+    description: The book name, already checked by plan-shards or plan-ladder.
+    required: true
+  book_table:
+    description: >
+      The book table in the calling repository's checkout. play-shard uses the
+      `file`, `format` and `count` verbs; actions/setup/README.md states the
+      whole contract.
+    default: scripts/book.sh
+  workdir:
+    description: Where the binaries, the book and the games are. The match runs from here.
+    default: tools
+  pairs:
+    description: Rounds to play. Each is two games, the same opening from both sides.
+    required: true
+  shards:
+    description: How many shards the match is split across.
+    required: true
+  shard:
+    description: Which one this is, counted from zero.
+    required: true
+  seed:
+    description: >
+      Picks the region of the book each shard plays, and is not a shuffle. A
+      seed given by hand replays an earlier run's schedule.
+    required: true
+  time_control:
+    description: The time control, as fastchess reads it.
+    required: true
+  hash_mb:
+    description: >
+      The hash each engine is asked for. Asked rather than given: an engine
+      that declares a smaller maximum plays on its own default.
+    default: "256"
+  concurrency:
+    description: How many games play at once.
+    default: "2"
+  startup_ms:
+    description: How long an engine is given to answer before it counts as dead.
+    default: "20000"
+  max_match_minutes:
+    description: >
+      The wall clock cap. A shard that reaches it is asked to stop and report
+      the games it has, which is fewer than it was asked for.
+    required: true
+
+outputs:
+  book_file:
+    description: The file fastchess was given.
+    value: ${{ steps.slice.outputs.book_file }}
+  book_format:
+    description: What it read that file as.
+    value: ${{ steps.slice.outputs.book_format }}
+  openings:
+    description: How many openings the file holds, counted rather than trusted.
+    value: ${{ steps.slice.outputs.openings }}
+  start:
+    description: The opening this shard started at.
+    value: ${{ steps.slice.outputs.start }}
+  stopped_by:
+    description: >
+      Whether fastchess reached the game count or the cap took it. Empty when
+      the shard did not get that far, which a manifest should say rather than
+      leave out.
+    value: ${{ steps.play.outputs.stopped_by }}
+
+runs:
+  using: composite
+  steps:
+    - name: Work out the slice of the book
+      id: slice
+      shell: bash
+      env:
+        BOOK: ${{ inputs.book }}
+        BOOK_TABLE: ${{ inputs.book_table }}
+        WORKDIR: ${{ inputs.workdir }}
+        PAIRS: ${{ inputs.pairs }}
+        SHARDS: ${{ inputs.shards }}
+        SHARD: ${{ inputs.shard }}
+        SEED: ${{ inputs.seed }}
+      run: |
+        "${GITHUB_ACTION_PATH}/slice.sh" "$BOOK_TABLE" "$BOOK" "$WORKDIR" \
+          "$PAIRS" "$SHARDS" "$SHARD" "$SEED" > slice.txt 2> remarks.txt \
+          || { echo "::error::$(cat remarks.txt)"; exit 1; }
+        while read -r remark; do
+          echo "::warning::${remark}"
+        done < remarks.txt
+        cat slice.txt >> "$GITHUB_OUTPUT"
+        # and to the calling job's environment, for the reason the play step
+        # below gives: a manifest written with `if: always()` needs these even
+        # when a later step of this action failed. The key is upper cased and
+        # the value is left alone, which is why this is not tr
+        awk -F= '{ print toupper($1) "=" substr($0, index($0, "=") + 1) }' slice.txt >> "$GITHUB_ENV"
+
+    - name: Play the shard
+      id: play
+      shell: bash
+      working-directory: ${{ inputs.workdir }}
+      env:
+        CANDIDATE: ${{ inputs.candidate }}
+        CANDIDATE_BINARY: ${{ inputs.candidate_binary }}
+        OPPONENT: ${{ inputs.opponent }}
+        OPPONENT_BINARY: ${{ inputs.opponent_binary }}
+        BOOK_FILE: ${{ steps.slice.outputs.book_file }}
+        BOOK_FORMAT: ${{ steps.slice.outputs.book_format }}
+        START: ${{ steps.slice.outputs.start }}
+        PAIRS: ${{ inputs.pairs }}
+        TIME_CONTROL: ${{ inputs.time_control }}
+        HASH: ${{ inputs.hash_mb }}
+        CONCURRENCY: ${{ inputs.concurrency }}
+        STARTUP_MS: ${{ inputs.startup_ms }}
+        MAX_MATCH_MINUTES: ${{ inputs.max_match_minutes }}
+        SHARD: ${{ inputs.shard }}
+      run: |
+        # play.sh sets pipefail for itself. A composite action's step does not
+        # take the caller's `defaults`, and without it a fastchess that died
+        # is hidden by the tee it is piped into.
+        #
+        # Its stdout is fastchess's, and goes to the log. The one line it has
+        # to report comes back in a file, which is also why that file is not
+        # the output file: the output file accumulates every step's lines, and
+        # the case below would read whichever came last.
+        "${GITHUB_ACTION_PATH}/play.sh" played.txt
+        case "$(cat played.txt)" in
+          "stopped_by=fastchess"*) ;;
+          *) echo "::warning::${CANDIDATE} against ${OPPONENT} hit the ${MAX_MATCH_MINUTES} minute cap before its game count" ;;
+        esac
+        cat played.txt >> "$GITHUB_OUTPUT"
+        # Also to the job's environment, and not only to this action's
+        # outputs. A caller writes its manifest with `if: always()`, and a
+        # composite action that failed part way does not hand its outputs
+        # back, so a shard that computed its slice and then died would lose
+        # the slice it had already chosen. An environment file written by a
+        # composite step is read by every later step of the calling job.
+        awk -F= '{ print toupper($1) "=" substr($0, index($0, "=") + 1) }' played.txt >> "$GITHUB_ENV"

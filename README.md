@@ -42,10 +42,30 @@ are for, and why they take the care described further down.
 | `match-terminations` | How the games actually ended |
 | `book-slice` | Which openings a shard plays, so that no two shards share one |
 
-`actions/setup`, a composite action that builds
-[fastchess](https://github.com/Disservin/fastchess) at a pinned commit,
-fetches an opening book and checks it against a recorded hash, and puts the
-package on `PYTHONPATH`. Nothing is installed at match time.
+Six composite actions, which are the parts of a match workflow that are not
+about any one engine. A caller keeps its own jobs, its own matrix and its own
+toolchain cache, and calls these for the work inside them.
+
+| Action | What it does |
+| --- | --- |
+| `actions/setup` | Builds [fastchess](https://github.com/Disservin/fastchess) at a pinned commit, fetches an opening book and checks it against a recorded hash, and puts the package on `PYTHONPATH`. Nothing is installed at match time |
+| `actions/resolve-ref` | Turns a branch, tag, commit or pull request number into a commit, and refuses under a trigger where the ref was not the caller's to choose |
+| `actions/plan-shards` | Works out the shard list and the pairs each shard plays, and checks the sequential test's bounds before anything is built |
+| `actions/plan-ladder` | Reads a gauntlet's ladder into the rungs a matrix plays and the spec the fit reads |
+| `actions/play-shard` | Works out which openings a shard plays, and plays them |
+| `actions/summarise-match` | Pools every shard and estimates the difference, and judges the sequential test where there is one |
+| `actions/summarise-gauntlet` | Pools every rung and fits a rating against the ladder |
+
+Each has a `README.md` beside it. Two things they deliberately do not do:
+build an engine, and write the manifest a run keeps about itself. A build
+belongs to the engine, and arrives as steps of the caller's own rather than as
+a command in a string. A manifest is the calling repository's record of its own
+run, and its shape is that repository's business.
+
+`bin/` holds the shell tools a caller can run directly, which `actions/setup`
+puts on `PATH`. There is no build script among them, and
+`docs/BUILDING-A-REF.md` says why, along with the one trap a build step written
+for this has to avoid.
 
 ## Using the tools
 

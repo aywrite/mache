@@ -1,0 +1,89 @@
+name: Summarise a strength match
+description: >
+  Pool every shard's games, estimate the difference between the two sides over
+  all of them at once, and write the run's summary. Where the batch is part of
+  a sequential test, this is the one place the test is judged.
+
+inputs:
+  games:
+    description: >
+      The directory the shards' artifacts were downloaded into. Every
+      `games.pgn` under it is counted, whether the artifacts were extracted
+      one to a directory or straight into it.
+    default: shards
+  candidate:
+    description: What the candidate side is called.
+    required: true
+  candidate_sha:
+    description: The commit it was built from.
+    required: true
+  baseline:
+    description: What the baseline side is called.
+    required: true
+  baseline_sha:
+    description: The commit it was built from.
+    required: true
+  shards:
+    description: >
+      How many shards were asked for. The summary says how many of them
+      arrived, which is how a lost shard is visible rather than silent.
+    required: true
+  time_control:
+    description: The time control the games were played at.
+    required: true
+  sprt:
+    description: Whether to judge a sequential test over the pooled pairs.
+    default: "false"
+  elo0:
+    description: The null the test is against.
+    default: "0"
+  elo1:
+    description: The alternative the test is against.
+    default: "5"
+  prior_pairs:
+    description: The pair counts of the batches already played.
+    default: ""
+  provenance:
+    description: >
+      One paragraph from the caller saying where the games are kept and what
+      replays their schedule. Artifact names belong to the calling workflow,
+      so this is the caller's sentence rather than this action's.
+    default: ""
+
+outputs:
+  line:
+    description: The one line a release note carries.
+    value: ${{ steps.summary.outputs.line }}
+
+runs:
+  using: composite
+  steps:
+    - name: Summarise the result
+      id: summary
+      shell: bash
+      env:
+        GAMES: ${{ inputs.games }}
+        CANDIDATE: ${{ inputs.candidate }}
+        CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        BASELINE: ${{ inputs.baseline }}
+        BASELINE_SHA: ${{ inputs.baseline_sha }}
+        SHARDS: ${{ inputs.shards }}
+        TIME_CONTROL: ${{ inputs.time_control }}
+        SPRT: ${{ inputs.sprt }}
+        ELO0: ${{ inputs.elo0 }}
+        ELO1: ${{ inputs.elo1 }}
+        PRIOR_PAIRS: ${{ inputs.prior_pairs }}
+        PROVENANCE: ${{ inputs.provenance }}
+      run: |
+        # the report itself goes to the log, so this is not redirected. The
+        # outputs come back in a file of their own rather than mixed into it
+        "${GITHUB_ACTION_PATH}/summarise.sh" "$GAMES" outputs.txt \
+          2> remarks.txt \
+          || { echo "::error::$(head -1 remarks.txt)"; cat remarks.txt; exit 1; }
+        while read -r remark; do
+          echo "::warning::${remark}"
+        done < remarks.txt
+        cat outputs.txt >> "$GITHUB_OUTPUT"
+        # a notice as well, because that is what a watcher of the run sees
+        # without opening it
+        echo "::notice::$(sed -n 's/^line=//p' outputs.txt)"

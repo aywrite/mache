@@ -10,6 +10,9 @@
 #
 #     books.sh list                  the books it knows
 #     books.sh pin                   the commit they are fetched at
+#     books.sh file <book>           the file it plays as
+#     books.sh format <book>         what fastchess reads that file as
+#     books.sh count <book> <path>   how many openings that file holds
 #     books.sh fetch <book> <dir>    download it at the pin, unzip it, check it
 #     books.sh verify <book> <dir>   check one already there
 set -euo pipefail
@@ -17,6 +20,7 @@ set -euo pipefail
 PIN=65815ccdbc7727cd4f6aee252ba8f67fb740e92f
 BOOK=8moves_v3
 FILE=8moves_v3.pgn
+FORMAT=pgn
 SHA256=5835239f88cc2c7511b177c32392a69f3ede21819cf0616f80a7f907cd21d17e
 
 named() {
@@ -64,7 +68,11 @@ case "${1:-}" in
     list) echo "$BOOK" ;;
     pin) echo "$PIN" ;;
     file) named "${2:-}"; echo "$FILE" ;;
+    format) named "${2:-}"; echo "$FORMAT" ;;
+    # a pgn holds a game per opening, which is why counting belongs beside the
+    # format rather than in whatever is asking
+    count) named "${2:-}"; grep -c '^\[Event ' "${3:?usage: books.sh count <book> <path>}" ;;
     fetch) fetch "${2:?usage: books.sh fetch <book> <dir>}" "${3:?usage: books.sh fetch <book> <dir>}" ;;
     verify) verify "${2:?usage: books.sh verify <book> <dir>}" "${3:?usage: books.sh verify <book> <dir>}" ;;
-    *) echo "usage: books.sh list|pin|file|fetch|verify" >&2; exit 1 ;;
+    *) echo "usage: books.sh list|pin|file|format|count|fetch|verify" >&2; exit 1 ;;
 esac

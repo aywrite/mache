@@ -1,0 +1,93 @@
+name: Plan a gauntlet
+description: >
+  Read a ladder of rated engines into the rungs a matrix plays and the spec
+  the rating fit reads, check the book name before a runner builds anything,
+  and work out how long a rung should be given.
+
+inputs:
+  games:
+    description: How many games to play against each opponent.
+    required: true
+  ladder:
+    description: >
+      The opponents, as a comma separated list of `engine:tag:rating`. The
+      engine names come from the opponent table and the ratings from the list
+      the placement is against.
+    required: true
+  opponent_table:
+    description: >
+      The opponent table in the calling repository's checkout. It is called as
+      `list`, `repository <engine>` and `build <engine> <pin> <binary>`;
+      actions/plan-ladder/README.md states the contract.
+    default: scripts/opponent.sh
+  book:
+    description: The book name the run asked for.
+    required: true
+  book_table:
+    description: >
+      The book table in the calling repository's checkout, as
+      actions/setup/README.md describes it.
+    default: scripts/book.sh
+  max_match_minutes:
+    description: >
+      The wall clock cap a rung plays under. The job timeout this returns is
+      half an hour over it, for the builds and the upload.
+    required: true
+
+outputs:
+  rungs:
+    description: The rungs, as json for a matrix to read with fromJSON. Each carries the engine, the tag, the rating and its index.
+    value: ${{ steps.plan.outputs.rungs }}
+  count:
+    description: How many rungs there are.
+    value: ${{ steps.plan.outputs.count }}
+  pairs:
+    description: The pairs played against each opponent.
+    value: ${{ steps.plan.outputs.pairs }}
+  spec:
+    description: The ladder the rating fit reads, as `name:rating` pairs carrying the names the games are played under.
+    value: ${{ steps.plan.outputs.spec }}
+  book:
+    description: The book name, once the table has been asked whether it knows it.
+    value: ${{ steps.book.outputs.book }}
+  play_timeout:
+    description: Minutes to give a play job, for timeout-minutes to read with fromJSON.
+    value: ${{ steps.timeout.outputs.minutes }}
+
+runs:
+  using: composite
+  steps:
+    - name: Work out the rungs
+      id: plan
+      shell: bash
+      env:
+        GAMES: ${{ inputs.games }}
+        LADDER: ${{ inputs.ladder }}
+        OPPONENT_TABLE: ${{ inputs.opponent_table }}
+      run: |
+        "${GITHUB_ACTION_PATH}/plan.sh" "$GAMES" "$LADDER" "$OPPONENT_TABLE" \
+          > plan.txt 2> remarks.txt \
+          || { echo "::error::$(cat remarks.txt)"; exit 1; }
+        while read -r remark; do
+          echo "::notice::${remark}"
+        done < remarks.txt
+        cat plan.txt >> "$GITHUB_OUTPUT"
+
+    - name: Work out the book
+      id: book
+      shell: bash
+      env:
+        BOOK: ${{ inputs.book }}
+        BOOK_TABLE: ${{ inputs.book_table }}
+      run: |
+        "${GITHUB_ACTION_PATH}/../../bin/check_book.sh" "$BOOK_TABLE" "$BOOK" \
+          2> remarks.txt || { echo "::error::$(cat remarks.txt)"; exit 1; }
+        echo "::notice::playing the ${BOOK} book"
+        echo "book=${BOOK}" >> "$GITHUB_OUTPUT"
+
+    - name: Work out how long a rung is given
+      id: timeout
+      shell: bash
+      env:
+        MAX_MATCH_MINUTES: ${{ inputs.max_match_minutes }}
+      run: echo "minutes=$((MAX_MATCH_MINUTES + 30))" >> "$GITHUB_OUTPUT"

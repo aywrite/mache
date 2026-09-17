@@ -51,16 +51,28 @@ as its own.
 ## The book table contract
 
 The table is a program in the calling repository, named by `book_table`, and
-this action calls it four ways. A table is how a repository says which openings
-it plays and how a file it downloaded is checked, which is a decision that
-belongs to the repository rather than to this action.
+the actions in this repository call it seven ways. A table is how a repository
+says which openings it plays and how a file it downloaded is checked, which is
+a decision that belongs to the repository rather than to an action.
 
 | call | prints | exit status |
 | --- | --- | --- |
 | `<table> list` | every book it knows, one name a line | non-zero if it cannot say |
 | `<table> pin` | the commit of the book source every book is fetched at | non-zero if it cannot say |
+| `<table> file <book>` | the file that book plays as | non-zero if it has no such book |
+| `<table> format <book>` | what fastchess reads that file as | non-zero if it has no such book |
+| `<table> count <book> <path>` | how many openings the file at `<path>` holds | non-zero if it cannot count them |
 | `<table> fetch <book> <dir>` | nothing | non-zero if the download failed or is not what the table says it should be |
 | `<table> verify <book> <dir>` | nothing | non-zero if the file in `<dir>` is not what the table says it should be |
+
+`setup` uses the first two and the last two. `plan-shards` and `plan-ladder`
+use `list`. `play-shard` uses `file`, `format` and `count`.
+
+`count` takes a path rather than answering from a number the table has written
+down, because a book that changed size would otherwise move every shard but the
+first onto its neighbour's openings with nothing failing. It belongs beside the
+format because what an opening is depends on it: a pgn holds a game per opening
+and an epd a position a line.
 
 `fetch` leaves the book in `<dir>` under the file name the table gives it, and
 leaves nothing there at all if what arrived was not what was asked for. It is
@@ -69,10 +81,6 @@ restored file is what most runs play.
 
 `pin` is what the cache key is built from, so a table that changed its pin
 cannot hand a run the file fetched at the old one under the new one's name.
-
-A table may answer to more than these four. The engine this was written for
-also asks its table for a book's file name, its format and how many openings it
-holds, which the workflow around the action uses and the action does not.
 
 `tests/fixtures/books.sh` in this repository is a table of one book, written to
 this contract and used by the smoke test. It is the shortest example of one.
