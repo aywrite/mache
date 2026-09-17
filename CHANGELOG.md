@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.0] - 2026-09-17
+
+### Features
+
+- *(package)* Name the version in the report of each estimate
+- *(action)* Move the match orchestration into six composite actions
+
+### Bug Fixes
+
+- *(package)* Say what an sprt verdict means
+- *(package)* Read a pgn as utf-8 and not as the locale
+
+### Documentation
+
+- *(docs)* Finish the tools table and show the command lines
+- *(docs)* Say that the sequential test keeps no state
+
+### Development
+
+- *(ci)* Pin what the workflows install from PyPI
+- *(ci)* Take the persisted credential off every checkout
+- *(ci)* Release from the actions tab
+
 ## [0.1.0] - 2026-09-13
 
 ### Bug Fixes
