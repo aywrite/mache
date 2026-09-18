@@ -1,0 +1,346 @@
+name: Calibrate
+
+# A whole gauntlet against rated opponents, as one call, and the companion to
+# Strength. The same trade applies: a caller that wants the job graph, its own
+# cache action and its own manifest calls the six actions instead.
+
+on:
+  workflow_call:
+    inputs:
+      engine_name:
+        description: >
+          What the engine plays under. The binary, the games and the fit all
+          read this one value, so it is not cosmetic.
+        type: string
+        required: true
+      build:
+        description: >
+          A program in the calling repository that builds the engine at a
+          commit. Called as `<build> <ref> <binary>`. See the contract in
+          .github/workflows/README.md.
+        type: string
+        required: true
+      ladder:
+        description: The opponents, as `engine:tag:rating` separated by commas.
+        type: string
+        required: true
+      opponent_table:
+        description: >
+          The opponent table in the calling repository, called as `list` here
+          and as `build` and `repository` by this workflow.
+        type: string
+        default: scripts/opponent.sh
+      candidate:
+        description: What to measure. The ref the call runs on by default.
+        type: string
+        default: ""
+      games:
+        description: Games against each opponent, rounded down to even.
+        type: number
+        default: 50
+      time_control:
+        description: Passed to fastchess as tc.
+        type: string
+        default: 20+0.2
+      book:
+        description: The opening set, one the book table knows.
+        type: string
+        default: 8moves_v3
+      book_table:
+        description: The book table in the calling repository.
+        type: string
+        default: scripts/book.sh
+      seed:
+        description: Picks the region of the book each rung plays. The run id by default.
+        type: string
+        default: ""
+      rating_list:
+        description: The list the opponents' ratings come from, named in the summary.
+        type: string
+        default: "[ccrl](https://computerchess.org.uk/) blitz"
+      rating_time_control:
+        description: What those ratings were measured at, named in the caveat. Left out when empty.
+        type: string
+        default: ""
+      cache_paths:
+        description: What to hand actions/cache between runs, one path a line. Empty caches nothing.
+        type: string
+        default: ""
+      cache_key:
+        description: The key those paths are cached under. Required when cache_paths is set.
+        type: string
+        default: ""
+      manifest_extra:
+        description: Lines the caller wants in every rung's manifest.
+        type: string
+        default: ""
+      hash_mb:
+        description: >
+          The table each engine is asked for. Asked rather than given: an
+          engine that declares a smaller maximum plays on its own default.
+        type: number
+        default: 256
+      concurrency:
+        description: Games a rung plays at once.
+        type: number
+        default: 2
+      max_match_minutes:
+        description: The wall clock cap on play alone. The job timeout is this plus half an hour.
+        type: number
+        default: 90
+      startup_ms:
+        description: How long fastchess waits for an engine to answer uci.
+        type: number
+        default: 20000
+      artifact_prefix:
+        description: What the per-rung artifacts are named.
+        type: string
+        default: calibrate
+      retention_days:
+        description: How long the games are kept.
+        type: number
+        default: 90
+    outputs:
+      line:
+        description: The one line a release note carries.
+        value: ${{ jobs.estimate.outputs.line }}
+
+permissions:
+  contents: read
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+    outputs:
+      candidate_sha: ${{ steps.candidate.outputs.sha }}
+      rungs: ${{ steps.plan.outputs.rungs }}
+      count: ${{ steps.plan.outputs.count }}
+      pairs: ${{ steps.plan.outputs.pairs }}
+      spec: ${{ steps.plan.outputs.spec }}
+      book: ${{ steps.plan.outputs.book }}
+      play_timeout: ${{ steps.plan.outputs.play_timeout }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: aywrite/mache/actions/resolve-ref@v0.2.0
+        id: candidate
+        with:
+          ref: ${{ inputs.candidate }}
+          label: candidate
+          when_empty: head
+
+      - uses: aywrite/mache/actions/plan-ladder@v0.2.0
+        id: plan
+        with:
+          games: ${{ inputs.games }}
+          ladder: ${{ inputs.ladder }}
+          opponent_table: ${{ inputs.opponent_table }}
+          book: ${{ inputs.book }}
+          book_table: ${{ inputs.book_table }}
+          max_match_minutes: ${{ inputs.max_match_minutes }}
+
+  play:
+    needs: resolve
+    runs-on: ubuntu-latest
+    strategy:
+      # a rung that fell over is missing from the fit, not a lost run
+      fail-fast: false
+      matrix:
+        rung: ${{ fromJSON(needs.resolve.outputs.rungs) }}
+    # without a name a matrix job is named for every value in its entry
+    name: play ${{ matrix.rung.engine }}-${{ matrix.rung.tag }}
+    timeout-minutes: ${{ fromJSON(needs.resolve.outputs.play_timeout) }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      SEED: ${{ inputs.seed || github.run_id }}
+      ENGINE: ${{ matrix.rung.engine }}
+      TAG: ${{ matrix.rung.tag }}
+      # the engine is in the opponent's name because two engines can share a
+      # version string
+      OPPONENT: ${{ matrix.rung.engine }}-${{ matrix.rung.tag }}
+      RATING: ${{ matrix.rung.rating }}
+      CANDIDATE_SHA: ${{ needs.resolve.outputs.candidate_sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: aywrite/mache/actions/setup@v0.2.0
+        id: tools
+        with:
+          book_table: ${{ inputs.book_table }}
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: inputs.cache_paths != ''
+        with:
+          path: ${{ inputs.cache_paths }}
+          key: ${{ inputs.cache_key }}
+
+      - name: Build the engine
+        env:
+          BUILD: ${{ inputs.build }}
+          ENGINE_NAME: ${{ inputs.engine_name }}
+        run: |
+          # a pull request head is not fetched by default, and the resolve
+          # job's fetch was on another machine
+          git cat-file -e "${CANDIDATE_SHA}^{commit}" 2>/dev/null \
+            || git fetch -q origin "$CANDIDATE_SHA" \
+            || git fetch -q origin "+refs/pull/*/head:refs/remotes/pull/*"
+          "$BUILD" "$CANDIDATE_SHA" "tools/${ENGINE_NAME}"
+          [ -x "tools/${ENGINE_NAME}" ] \
+            || { echo "::error::${BUILD} left no runnable tools/${ENGINE_NAME}"; exit 1; }
+
+      # Not cached: an opponent that clones and builds in seconds costs less
+      # than fetching a cache would.
+      - name: Build the opponent
+        env:
+          OPPONENT_TABLE: ${{ inputs.opponent_table }}
+        run: |
+          "$OPPONENT_TABLE" build "$ENGINE" "$TAG" "tools/${OPPONENT}" \
+            || { echo "::error::cannot build ${OPPONENT}"; exit 1; }
+          ls -l "tools/${OPPONENT}"
+
+      - uses: aywrite/mache/actions/play-shard@v0.2.0
+        id: play
+        with:
+          candidate: ${{ inputs.engine_name }}
+          candidate_binary: ./${{ inputs.engine_name }}
+          opponent: ${{ matrix.rung.engine }}-${{ matrix.rung.tag }}
+          opponent_binary: ./${{ matrix.rung.engine }}-${{ matrix.rung.tag }}
+          book: ${{ needs.resolve.outputs.book }}
+          book_table: ${{ inputs.book_table }}
+          pairs: ${{ needs.resolve.outputs.pairs }}
+          # the rungs are the shards of one pass over the book
+          shards: ${{ needs.resolve.outputs.count }}
+          shard: ${{ matrix.rung.index }}
+          seed: ${{ inputs.seed || github.run_id }}
+          time_control: ${{ inputs.time_control }}
+          hash_mb: ${{ inputs.hash_mb }}
+          concurrency: ${{ inputs.concurrency }}
+          startup_ms: ${{ inputs.startup_ms }}
+          max_match_minutes: ${{ inputs.max_match_minutes }}
+
+      - name: Write the manifest
+        if: always()
+        env:
+          FASTCHESS: ${{ steps.tools.outputs.fastchess }}
+          MACHE: ${{ steps.tools.outputs.version }}
+          BOOK: ${{ needs.resolve.outputs.book }}
+          BOOK_TABLE: ${{ inputs.book_table }}
+          OPPONENT_TABLE: ${{ inputs.opponent_table }}
+          ENGINE_NAME: ${{ inputs.engine_name }}
+          INDEX: ${{ matrix.rung.index }}
+          RUNGS: ${{ needs.resolve.outputs.count }}
+          PAIRS: ${{ needs.resolve.outputs.pairs }}
+          TIME_CONTROL: ${{ inputs.time_control }}
+          HASH: ${{ inputs.hash_mb }}
+          CONCURRENCY: ${{ inputs.concurrency }}
+          STARTUP_MS: ${{ inputs.startup_ms }}
+          MAX_MATCH_MINUTES: ${{ inputs.max_match_minutes }}
+          RATING_LIST: ${{ inputs.rating_list }}
+          BUILD: ${{ inputs.build }}
+          MANIFEST_EXTRA: ${{ inputs.manifest_extra }}
+        run: |
+          # asked for again, since the play action may not have got that far
+          book_file=$("$BOOK_TABLE" file "$BOOK") || book_file=unknown
+          book_sha=$(sha256sum "tools/${book_file}" | cut -d' ' -f1) || book_sha=unknown
+          repository=$("$OPPONENT_TABLE" repository "$ENGINE") || repository=unknown
+          {
+            echo "candidate: ${ENGINE_NAME}"
+            echo "candidate_sha: ${CANDIDATE_SHA}"
+            echo "opponent: ${OPPONENT}"
+            echo "opponent_repository: ${repository}"
+            echo "opponent_pin: ${TAG}"
+            echo "opponent_rating: ${RATING} on the ${RATING_LIST} list"
+            echo "build: ${BUILD} for ${ENGINE_NAME}, ${OPPONENT_TABLE} for ${ENGINE}"
+            echo "fastchess: ${FASTCHESS}"
+            echo "mache: ${MACHE}"
+            echo "book: ${book_file}"
+            echo "book_sha256: ${book_sha}"
+            echo "book_openings: ${OPENINGS:-not counted, the rung did not get that far}"
+            echo "seed: ${SEED}"
+            echo "rung: ${INDEX} of ${RUNGS}"
+            echo "start: ${START:-not chosen, the rung did not get that far}"
+            echo "pairs: ${PAIRS}"
+            echo "games_asked: $((PAIRS * 2))"
+            echo "time_control: ${TIME_CONTROL}"
+            echo "hash_mb_asked: ${HASH}"
+            echo "concurrency: ${CONCURRENCY}"
+            echo "startup_ms: ${STARTUP_MS}"
+            echo "wall_clock_cap_minutes: ${MAX_MATCH_MINUTES}"
+            echo "stopped_by: ${STOPPED_BY:-not recorded, the rung did not finish}"
+            echo "runner: $(uname -a)"
+            echo "cores: $(nproc)"
+            echo "run_id: ${GITHUB_RUN_ID}"
+            echo "run_url: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            if [ -n "$MANIFEST_EXTRA" ]; then
+              echo "$MANIFEST_EXTRA"
+            fi
+          } > tools/manifest.txt
+          cat tools/manifest.txt
+
+      - name: Keep the games
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ inputs.artifact_prefix }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.rung.engine }}-${{ matrix.rung.tag }}
+          path: |
+            tools/games.pgn
+            tools/result.txt
+            tools/config.json
+            tools/manifest.txt
+          if-no-files-found: warn
+          retention-days: ${{ inputs.retention_days }}
+
+  estimate:
+    needs: [resolve, play]
+    # runs on whatever arrived; the fit says which rungs played no games
+    if: always() && needs.resolve.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    outputs:
+      line: ${{ steps.estimate.outputs.line }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: aywrite/mache/actions/setup@v0.2.0
+        with:
+          estimator_only: true
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: ${{ inputs.artifact_prefix }}-${{ github.run_id }}-${{ github.run_attempt }}-*
+          path: rungs
+
+      - uses: aywrite/mache/actions/summarise-gauntlet@v0.2.0
+        id: estimate
+        with:
+          games: rungs
+          engine_name: ${{ inputs.engine_name }}
+          candidate_sha: ${{ needs.resolve.outputs.candidate_sha }}
+          ladder_spec: ${{ needs.resolve.outputs.spec }}
+          rungs: ${{ needs.resolve.outputs.count }}
+          time_control: ${{ inputs.time_control }}
+          rating_list: ${{ inputs.rating_list }}
+          rating_time_control: ${{ inputs.rating_time_control }}
+          provenance: >-
+            The games of each rung are kept as the
+            `${{ inputs.artifact_prefix }}-${{ github.run_id }}-${{ github.run_attempt }}-<engine>-<pin>`
+            artifacts, with a manifest saying what was played on what. The
+            openings came from seed ${{ inputs.seed || github.run_id }}, which
+            replays this schedule.
