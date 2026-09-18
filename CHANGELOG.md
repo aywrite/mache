@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.0] - 2026-09-18
+
+### Development
+
+- *(ci)* Add reusable workflows for a whole match in one call
+- *(ci)* Play a real match in this repository's own ci
+- *(ci)* Stop the release trying to push a workflow file
+
 ## [0.2.0] - 2026-09-17
 
 ### Features
