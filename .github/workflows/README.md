@@ -19,7 +19,7 @@ permissions:
   contents: read
 jobs:
   match:
-    uses: aywrite/mache/.github/workflows/strength.yml@v0.2.0
+    uses: aywrite/mache/.github/workflows/strength.yml@v0.3.0
     with:
       build: scripts/build_at.sh
       candidate: ${{ inputs.candidate }}
@@ -93,7 +93,11 @@ Call these at a tag.
 
 Inside them, the actions they use are pinned at a tag too, and **that tag is
 normally the release before the one you are calling**. A workflow at `v0.3.0`
-runs the actions of `v0.2.0` until somebody moves the pins.
+runs the actions of `v0.2.0`.
+
+Moving the pins does not change a release that is already out. A tag is fixed,
+so they move on `main` and reach the release after them. Bumping them to
+`v0.3.0` is what keeps `v0.4.0` one release behind rather than two.
 
 That is not where it started. The release was going to move the pins itself,
 which is tidier and does not work: a release commit is pushed by

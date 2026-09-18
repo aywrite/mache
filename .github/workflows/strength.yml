@@ -152,14 +152,14 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - uses: aywrite/mache/actions/resolve-ref@v0.2.0
+      - uses: aywrite/mache/actions/resolve-ref@v0.3.0
         id: candidate
         with:
           ref: ${{ inputs.candidate }}
           label: candidate
           when_empty: head
 
-      - uses: aywrite/mache/actions/resolve-ref@v0.2.0
+      - uses: aywrite/mache/actions/resolve-ref@v0.3.0
         id: baseline
         with:
           ref: ${{ inputs.baseline }}
@@ -171,7 +171,7 @@ jobs:
         if: steps.baseline.outputs.sha == ''
         run: echo "::notice::No previous release to compare against, skipping"
 
-      - uses: aywrite/mache/actions/plan-shards@v0.2.0
+      - uses: aywrite/mache/actions/plan-shards@v0.3.0
         id: plan
         with:
           games: ${{ inputs.games }}
@@ -209,7 +209,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - uses: aywrite/mache/actions/setup@v0.2.0
+      - uses: aywrite/mache/actions/setup@v0.3.0
         id: tools
         with:
           book_table: ${{ inputs.book_table }}
@@ -241,7 +241,7 @@ jobs:
               || { echo "::error::${BUILD} left no runnable ${binary}"; exit 1; }
           done
 
-      - uses: aywrite/mache/actions/play-shard@v0.2.0
+      - uses: aywrite/mache/actions/play-shard@v0.3.0
         id: play
         with:
           candidate: ${{ needs.resolve.outputs.candidate_name }}
@@ -359,7 +359,7 @@ jobs:
           persist-credentials: false
 
       # no harness to build and no book to fetch: this job only reads games
-      - uses: aywrite/mache/actions/setup@v0.2.0
+      - uses: aywrite/mache/actions/setup@v0.3.0
         with:
           estimator_only: true
 
@@ -368,7 +368,7 @@ jobs:
           pattern: ${{ inputs.artifact_prefix }}-${{ github.run_id }}-${{ github.run_attempt }}-shard-*
           path: shards
 
-      - uses: aywrite/mache/actions/summarise-match@v0.2.0
+      - uses: aywrite/mache/actions/summarise-match@v0.3.0
         id: summary
         with:
           games: shards
