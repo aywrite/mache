@@ -5,9 +5,9 @@ name: Action
 # of those are true off a runner. This runs them against a book table of one
 # book and checks what a consumer depends on.
 #
-# play-shard is not here. Playing anything needs an engine, and a fixture engine
-# to play is its own piece of work. What a runner proves about it until then is
-# proved by the repository that consumes it.
+# play-shard is here too, playing a real engine. The engine is stash, built
+# through the fixture opponent table at a pinned tag, playing itself: what is
+# under test is the plumbing around the games and not who wins them.
 
 on:
   push:
@@ -148,10 +148,8 @@ jobs:
         id: ladder
         with:
           games: 50
-          # the book table stands in as an opponent table here: the only verb
-          # plan-ladder asks of it is `list`, and a name is a name
-          ladder: 8moves_v3:v1:2500,8moves_v3:v2:2600
-          opponent_table: tests/fixtures/books.sh
+          ladder: stash:v1:2500,stash:v2:2600
+          opponent_table: tests/fixtures/opponents.sh
           book: 8moves_v3
           book_table: tests/fixtures/books.sh
           max_match_minutes: 150
@@ -171,5 +169,118 @@ jobs:
           test "$SHARD_LIST" = "[0,1,2,3]"
           test "$SHARD_TIMEOUT" = "180"
           test "$BOOK" = "8moves_v3"
-          test "$SPEC" = "8moves_v3-v1:2500,8moves_v3-v2:2600"
+          test "$SPEC" = "stash-v1:2500,stash-v2:2600"
           echo "$RUNGS"
+
+  play:
+    # The one test here that starts fastchess. Everything else about
+    # play-shard is checked by unit tests on its scripts, and none of them can
+    # see a composite action's outputs, its environment lines or a pgn.
+    #
+    # The engine plays itself, so the result is noise and is not looked at.
+    # What is looked at is the schedule, which is predicted rather than read
+    # back: at seed 7 over 34,700 openings, one shard of two pairs starts at
+    # opening 8, and mache/book_slice.py is what says so.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./actions/setup # zizmor: ignore[self-repository]
+        id: tools
+        with:
+          book_table: tests/fixtures/books.sh
+
+      # Through the table rather than by hand, so the `build` verb of the
+      # opponent contract is exercised by something. stash is a plain make and
+      # takes about a second; the same binary plays both sides, because
+      # building it twice would prove nothing the first build did not.
+      - name: Build the engine both sides play
+        run: |
+          tests/fixtures/opponents.sh build stash v17.0 tools/new
+          cp tools/new tools/old
+
+      - uses: ./actions/play-shard # zizmor: ignore[self-repository]
+        id: play
+        with:
+          candidate: new
+          candidate_binary: ./new
+          opponent: old
+          opponent_binary: ./old
+          book: 8moves_v3
+          book_table: tests/fixtures/books.sh
+          pairs: 2
+          shards: 1
+          shard: 0
+          seed: 7
+          time_control: 1+0.01
+          max_match_minutes: 5
+
+      - name: The shard played the schedule it was told to
+        env:
+          OPENINGS: ${{ steps.play.outputs.openings }}
+          START: ${{ steps.play.outputs.start }}
+          STOPPED_BY: ${{ steps.play.outputs.stopped_by }}
+          BOOK_FILE: ${{ steps.play.outputs.book_file }}
+        run: |
+          test "$BOOK_FILE" = "8moves_v3.pgn"
+          # counted from the file rather than written down anywhere
+          test "$OPENINGS" = "34700"
+          test "$START" = "8"
+          case "$STOPPED_BY" in
+            "fastchess, at the game count") ;;
+            *) echo "::error::the shard stopped by ${STOPPED_BY}"; exit 1 ;;
+          esac
+
+      - name: The games came back, and the environment carries them
+        env:
+          # written by the action to the calling job's environment, which is
+          # what a caller's manifest step reads with `if: always()`
+          ENV_START: ${{ env.START }}
+          ENV_STOPPED_BY: ${{ env.STOPPED_BY }}
+        run: |
+          played=$(grep -c '^\[Event ' tools/games.pgn)
+          if [ "$played" != "4" ]; then
+            echo "::error::two pairs is four games, and ${played} came back"
+            exit 1
+          fi
+          test -s tools/result.txt
+          # the same two facts the outputs carry, by the other route
+          test "$ENV_START" = "8"
+          test "$ENV_STOPPED_BY" = "fastchess, at the game count"
+
+      - name: The summary reads them
+        run: |
+          mkdir -p shards/shard-0
+          cp tools/games.pgn shards/shard-0/
+
+      - uses: ./actions/summarise-match # zizmor: ignore[self-repository]
+        id: summary
+        with:
+          games: shards
+          candidate: new
+          candidate_sha: 0000000000000000000000000000000000000000
+          baseline: old
+          baseline_sha: 1111111111111111111111111111111111111111
+          shards: 1
+          time_control: 1+0.01
+
+      - name: The summary said something about the games it read
+        env:
+          LINE: ${{ steps.summary.outputs.line }}
+        run: |
+          case "$LINE" in
+            "Performance compared to old | "*"(4 games)") ;;
+            *) echo "::error::the summary line reads ${LINE}"; exit 1 ;;
+          esac
+          # The version that read the games, which is what lets a figure be
+          # read back against the tooling that produced it. Read out of the
+          # report rather than out of GITHUB_STEP_SUMMARY: that variable names
+          # a different file in every step, so a later step grepping it reads
+          # an empty one and would pass whatever the summary said.
+          grep -q "Read by mache" report.md

@@ -14,6 +14,7 @@ promise is `key=value` on stdout and a remark on stderr, and only running them
 says whether they keep to that.
 """
 
+import re
 import subprocess
 from pathlib import Path
 
@@ -22,6 +23,7 @@ SHARDS = ROOT / "actions" / "plan-shards" / "plan.sh"
 LADDER = ROOT / "actions" / "plan-ladder" / "plan.sh"
 CHECK_BOOK = ROOT / "bin" / "check_book.sh"
 BOOKS = ROOT / "tests" / "fixtures" / "books.sh"
+OPPONENTS = ROOT / "tests" / "fixtures" / "opponents.sh"
 
 
 def run(script, *arguments):
@@ -43,9 +45,7 @@ def shards(games, count, sprt="false", elo0="0", elo1="5", prior=""):
     return run(SHARDS, games, count, sprt, elo0, elo1, prior)
 
 
-def ladder(games, entries, table=BOOKS):
-    # the opponent table stands in for itself: what plan.sh asks of it is
-    # `list`, and the book fixture's list is a name like any other
+def ladder(games, entries, table=OPPONENTS):
     return run(LADDER, games, entries, table)
 
 
@@ -104,27 +104,27 @@ class TestShards:
 
 class TestLadder:
     def test_a_rung_becomes_a_matrix_entry_and_a_fit_entry(self):
-        plan = planned(ladder(50, "8moves_v3:v1:2500"))
+        plan = planned(ladder(50, "stash:v1:2500"))
         assert plan["count"] == "1"
         assert plan["pairs"] == "25"
-        assert plan["spec"] == "8moves_v3-v1:2500"
-        assert '"engine":"8moves_v3"' in plan["rungs"]
+        assert plan["spec"] == "stash-v1:2500"
+        assert '"engine":"stash"' in plan["rungs"]
         assert '"index":0' in plan["rungs"]
 
     def test_the_rungs_are_indexed_in_the_order_they_were_given(self):
-        plan = planned(ladder(50, "8moves_v3:a:2500,8moves_v3:b:2600"))
+        plan = planned(ladder(50, "stash:a:2500,stash:b:2600"))
         assert plan["count"] == "2"
         assert plan["rungs"].index('"tag":"a"') < plan["rungs"].index('"tag":"b"')
-        assert plan["spec"] == "8moves_v3-a:2500,8moves_v3-b:2600"
+        assert plan["spec"] == "stash-a:2500,stash-b:2600"
 
     def test_spaces_and_a_trailing_comma_are_not_faults(self):
-        plan = planned(ladder(50, "8moves_v3:a:2500, 8moves_v3:b:2600,"))
+        plan = planned(ladder(50, "stash:a:2500, stash:b:2600,"))
         assert plan["count"] == "2"
 
     def test_newlines_do_not_swallow_the_rungs_after_them(self):
         # read stops at a newline, so a ladder pasted over two lines would
         # otherwise lose everything below the first
-        plan = planned(ladder(50, "8moves_v3:a:2500,\n8moves_v3:b:2600"))
+        plan = planned(ladder(50, "stash:a:2500,\nstash:b:2600"))
         assert plan["count"] == "2"
 
     def test_an_engine_the_table_cannot_build_is_refused(self):
@@ -133,39 +133,39 @@ class TestLadder:
         assert "not one of" in result.stderr
 
     def test_a_rung_that_is_not_engine_tag_rating_is_refused(self):
-        assert ladder(50, "8moves_v3:v1").returncode != 0
-        assert ladder(50, "8moves_v3:v1:2500:extra").returncode != 0
+        assert ladder(50, "stash:v1").returncode != 0
+        assert ladder(50, "stash:v1:2500:extra").returncode != 0
 
     def test_a_rating_that_is_not_a_number_is_refused(self):
-        assert ladder(50, "8moves_v3:v1:strong").returncode != 0
+        assert ladder(50, "stash:v1:strong").returncode != 0
 
     def test_a_tag_that_is_not_a_name_is_refused(self):
         # the tag is part of a file name, an artifact name and the name the
         # engine plays under
-        assert ladder(50, "8moves_v3:v1/../x:2500").returncode != 0
+        assert ladder(50, "stash:v1/../x:2500").returncode != 0
 
     def test_a_glob_in_the_ladder_does_not_reach_the_checkout(self):
         # splitting on whitespace rather than on commas alone would let this
         # expand against the files in the working directory
-        result = ladder(50, "8moves_v3:*:2500")
+        result = ladder(50, "stash:*:2500")
         assert result.returncode != 0
         assert "not a name" in result.stderr
 
     def test_the_same_engine_and_pin_twice_is_refused(self):
         # two rungs would upload under one artifact name and be counted once
-        result = ladder(50, "8moves_v3:v1:2500,8moves_v3:v1:2500")
+        result = ladder(50, "stash:v1:2500,stash:v1:2500")
         assert result.returncode != 0
         assert "twice" in result.stderr
 
     def test_the_same_engine_at_two_pins_is_fine(self):
-        assert ladder(50, "8moves_v3:v1:2500,8moves_v3:v2:2600").returncode == 0
+        assert ladder(50, "stash:v1:2500,stash:v2:2600").returncode == 0
 
     def test_an_empty_ladder_is_refused(self):
         assert ladder(50, "").returncode != 0
         assert ladder(50, " , ").returncode != 0
 
     def test_too_few_games_for_a_pair_is_refused(self):
-        assert ladder(1, "8moves_v3:v1:2500").returncode != 0
+        assert ladder(1, "stash:v1:2500").returncode != 0
 
 
 class TestCheckBook:
@@ -183,3 +183,47 @@ class TestCheckBook:
     def test_a_metacharacter_is_an_unknown_name_rather_than_a_pattern(self):
         # grep -F and -x, or `.*` would match every book in the table
         assert run(CHECK_BOOK, BOOKS, ".*").returncode != 0
+
+
+class TestTheOpponentTable:
+    """The fixture table, against the contract in actions/plan-ladder/README.md.
+
+    `build` is not here. It clones and compiles, which needs the network and a
+    compiler, and the Action workflow runs it on a runner where both are
+    present. What is checked here is everything that answers without leaving
+    the machine.
+    """
+
+    def test_it_lists_the_engines_it_can_build(self):
+        result = run(OPPONENTS, "list")
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.split() == ["stash"]
+
+    def test_it_says_where_an_engine_is_cloned_from(self):
+        # the manifest records this: an opponent named by a version string
+        # alone cannot be found again
+        result = run(OPPONENTS, "repository", "stash")
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip().startswith("https://")
+
+    def test_an_engine_it_does_not_have_is_refused_with_the_list(self):
+        result = run(OPPONENTS, "repository", "nosuch")
+        assert result.returncode != 0
+        assert "stash" in result.stderr
+
+    def test_a_verb_the_contract_does_not_name_is_refused(self):
+        assert run(OPPONENTS, "whatever").returncode != 0
+
+    def test_build_wants_all_three_of_its_arguments(self):
+        # a table that built into an empty path would leave the caller with
+        # nothing to play and no error
+        assert run(OPPONENTS, "build", "stash").returncode != 0
+        assert run(OPPONENTS, "build", "stash", "v17.0").returncode != 0
+
+    def test_plan_ladder_asks_it_for_nothing_the_contract_does_not_name(self):
+        # the action calls `list` and the caller calls the other two. A table
+        # written to the readme has to be enough
+        contract = {"list", "repository", "build"}
+        text = LADDER.read_text(encoding="utf-8")
+        asked = set(re.findall(r'"\$table" ([a-z]+)', text))
+        assert asked <= contract, f"plan-ladder also asks for {asked - contract}"
