@@ -87,11 +87,25 @@ reads an **opponent table**, described in
 [`actions/plan-ladder/README.md`](../../actions/plan-ladder/README.md).
 `tests/fixtures/books.sh` is a worked example of the first.
 
-## Pinning
+## Pinning, and the lag in it
 
-Call these at a tag. The actions they use are pinned to a tag inside them, and
-the release process moves those pins to the release being cut, so a workflow at
-`vX.Y.Z` runs that release's actions.
+Call these at a tag.
+
+Inside them, the actions they use are pinned at a tag too, and **that tag is
+normally the release before the one you are calling**. A workflow at `v0.3.0`
+runs the actions of `v0.2.0` until somebody moves the pins.
+
+That is not where it started. The release was going to move the pins itself,
+which is tidier and does not work: a release commit is pushed by
+`GITHUB_TOKEN`, and GitHub refuses to let that token create or update a file
+under `.github/workflows/` at all. There is no permission that grants it; the
+refusal is the point of it. So the pins move in an ordinary pull request, like
+any other dependency bump, whenever the newer actions are wanted.
+
+What this costs is the lag. A fix to an action is in the actions at the release
+that carries it, and in the reusable workflows one release later. If you call
+the actions directly you do not have this problem, and if you call these and
+need a fix sooner, pin to the commit that carries it rather than to the tag.
 
 ## Not included
 

@@ -12,8 +12,11 @@ the workflows take nothing from a caller they do not use.
 The self pin is the fragile part. These workflows call actions out of the
 repository they live in, by name and tag rather than by a relative path, because
 a relative path inside a called workflow is resolved against something this
-repository cannot test from here. That buys certainty and costs a version that
-has to be moved every release, so the move is checked rather than remembered.
+repository cannot test from here. That buys certainty and costs a tag that has
+to be moved by hand: the release cannot move it, because a release commit is
+pushed by GITHUB_TOKEN and GitHub refuses that token any write under
+.github/workflows/. So what is checked here is the shape of the pins rather
+than their freshness, and the readme beside the workflows says what the lag is.
 
 The files are read as text as well as parsed, because what is being checked is
 partly how they are written.

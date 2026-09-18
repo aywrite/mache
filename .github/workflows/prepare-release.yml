@@ -111,29 +111,6 @@ jobs:
           print(f"version={version}")
           PY
 
-      # The reusable workflows call this repository's own actions by name and
-      # tag rather than by a relative path, so the tag has to move with the
-      # release. It names the version being cut, which does not exist as a tag
-      # until this pull request merges and tag-release.yml makes it from this
-      # very commit.
-      - name: Point the reusable workflows at this release
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          reusable=(.github/workflows/strength.yml .github/workflows/calibrate.yml)
-          before=$(grep -ho 'aywrite/mache/actions/[a-z-]*@[^ ]*' "${reusable[@]}" | wc -l)
-          sed -i -E "s|(uses: aywrite/mache/actions/[a-z-]+)@v[0-9]+\.[0-9]+\.[0-9]+|\1@v${VERSION}|" \
-            "${reusable[@]}"
-          after=$(grep -ho "aywrite/mache/actions/[a-z-]*@v${VERSION}\b" "${reusable[@]}" | wc -l)
-          # a pin the pattern missed would leave the workflow half on the last
-          # release, which tests/test_reusable.py fails on but only after this
-          # has already committed
-          if [ "$before" != "$after" ]; then
-            echo "::error::${before} action pins and only ${after} now name v${VERSION}"
-            exit 1
-          fi
-          echo "::notice::${after} action pins now name v${VERSION}"
-
       - name: Write the changelog section
         env:
           VERSION: ${{ steps.version.outputs.version }}
@@ -167,8 +144,7 @@ jobs:
           git config user.name "$ACTOR"
           git config user.email "${ACTOR_ID}+${ACTOR}@users.noreply.github.com"
           git switch -c "release/v${VERSION}"
-          git add mache/__init__.py CHANGELOG.md \
-            .github/workflows/strength.yml .github/workflows/calibrate.yml
+          git add mache/__init__.py CHANGELOG.md
           # The scope is one of the five the repository allows. The commit-msg
           # hook does not run on a runner, so it is chosen here and not checked.
           git commit -m "chore(package): prepare for ${VERSION}"
@@ -184,8 +160,7 @@ jobs:
           cat > "${RUNNER_TEMP}/body.md" <<EOF
           Prepares \`v${VERSION}\`, a ${LEVEL} bump.
 
-          The version, the changelog section and the reusable workflows' pins on
-          this repository's own actions are the whole diff. Merging this
+          The version and the changelog section are the whole diff. Merging this
           tags \`v${VERSION}\` and starts the release, which publishes the sdist
           and the wheel and makes the github release from the tag.
 
