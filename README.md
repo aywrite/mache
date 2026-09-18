@@ -62,6 +62,14 @@ belongs to the engine, and arrives as steps of the caller's own rather than as
 a command in a string. A manifest is the calling repository's record of its own
 run, and its shape is that repository's business.
 
+Two reusable workflows, `.github/workflows/strength.yml` and
+`calibrate.yml`, which are a whole match as one call. A repository that wants a
+match rather than a job graph writes about ten lines and gives up three things:
+its own cache action, its own build as steps, and the shape of its own manifest.
+`uses:` is not an expression, so a reusable workflow cannot be handed a step by
+anybody. [`.github/workflows/README.md`](.github/workflows/README.md) has the
+call, the build contract and the trade in full.
+
 `bin/` holds the shell tools a caller can run directly, which `actions/setup`
 puts on `PATH`. There is no build script among them, and
 `docs/BUILDING-A-REF.md` says why, along with the one trap a build step written
