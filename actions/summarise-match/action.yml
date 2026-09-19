@@ -54,6 +54,17 @@ outputs:
   line:
     description: The one line a release note carries.
     value: ${{ steps.summary.outputs.line }}
+  verdict:
+    description: >
+      What the sequential test came to over the pooled pairs: `passed`,
+      `failed` or `inconclusive`. Empty when the run was not a sequential
+      test, which a caller chaining batches reads as nothing to chain.
+    value: ${{ steps.summary.outputs.verdict }}
+  carried:
+    description: >
+      The pair counts of the whole test so far, in the form the next batch
+      takes as `prior_pairs`. Empty alongside an empty verdict.
+    value: ${{ steps.summary.outputs.carried }}
 
 runs:
   using: composite
@@ -84,6 +95,11 @@ runs:
           echo "::warning::${remark}"
         done < remarks.txt
         cat outputs.txt >> "$GITHUB_OUTPUT"
+        # and the verdict to the calling job's environment, for the reason
+        # play-shard gives: a composite action that failed part way hands back
+        # no outputs, and a caller that wanted to say what the run decided
+        # still can. Only these two, since `line` is already the notice above
+        awk -F= '/^(verdict|carried)=/ { print toupper($1) "=" substr($0, index($0, "=") + 1) }' outputs.txt >> "$GITHUB_ENV"
         # a notice as well, because that is what a watcher of the run sees
         # without opening it
         echo "::notice::$(sed -n 's/^line=//p' outputs.txt)"

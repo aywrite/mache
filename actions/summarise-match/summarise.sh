@@ -58,11 +58,26 @@ fi
 
 cat report.md
 
-# The same estimate asked two more ways. Their stderr is dropped rather than
+# The same estimate asked three more ways. Their stderr is dropped rather than
 # captured: it is the same remarks again, and the run above is the one that
 # reports them.
 trailer=$("${estimate[@]}" --trailer 2> /dev/null)
 line="Performance compared to ${BASELINE} | $("${estimate[@]}" --line 2> /dev/null)"
+
+# What the test decided, and the counts a batch after this one carries. Read
+# out of the json rather than parsed back out of the report, so the two cannot
+# disagree. Both are empty when this was not a sequential test, which is the
+# `sprt` key being null: a caller chaining batches reads an empty verdict as
+# nothing to chain rather than as a test that failed. The pipeline is not
+# redirected into a variable, so pipefail sees an estimate that died here.
+"${estimate[@]}" --json 2> /dev/null | python3 -c '
+import json
+import sys
+
+sequential = json.load(sys.stdin)["sprt"] or {}
+for key in ("verdict", "carried"):
+    print("%s=%s" % (key, sequential.get(key, "")))
+' > decided.txt
 
 {
     echo "${CANDIDATE} (\`${CANDIDATE_SHA:0:8}\`) against ${BASELINE} (\`${BASELINE_SHA:0:8}\`),"
@@ -87,4 +102,7 @@ line="Performance compared to ${BASELINE} | $("${estimate[@]}" --line 2> /dev/nu
 
 cat estimate-remarks.txt >&2
 
-echo "line=${line}" > "$outputs"
+{
+    echo "line=${line}"
+    cat decided.txt
+} > "$outputs"

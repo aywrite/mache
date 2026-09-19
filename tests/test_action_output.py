@@ -138,6 +138,17 @@ def games(tmp_path):
         stub / "python3",
         """
         if [ "$1" = "-m" ] && [ "$2" = "mache.match_estimate" ]; then
+            # the real tool answers --json with the whole result, and its
+            # `sprt` key is null when the run was not a sequential test
+            for argument in "$@"; do
+                [ "$argument" = "--json" ] || continue
+                if [ "${SPRT}" = "true" ]; then
+                    echo '{"sprt": {"verdict": "inconclusive", "carried": "1,2,3,4,5"}}'
+                else
+                    echo '{"sprt": null}'
+                fi
+                exit 0
+            done
             echo "4 of 5 shards reported" >&2
             echo "+3 ±2 Elo (200 games)"
             exit 0
@@ -148,7 +159,7 @@ def games(tmp_path):
     return tmp_path, stub
 
 
-def summarise(root, stub, outputs):
+def summarise(root, stub, outputs, sprt="false"):
     return subprocess.run(
         [str(SUMMARISE), "shards", str(outputs)],
         cwd=root,
@@ -164,7 +175,7 @@ def summarise(root, stub, outputs):
             "BASELINE_SHA": "b" * 40,
             "SHARDS": "1",
             "TIME_CONTROL": "10+0.1",
-            "SPRT": "false",
+            "SPRT": sprt,
             "ELO0": "0",
             "ELO1": "5",
             "PRIOR_PAIRS": "",
@@ -173,6 +184,10 @@ def summarise(root, stub, outputs):
             "GITHUB_RUN_ATTEMPT": "1",
         },
     )
+
+
+def outputs_of(path):
+    return dict(line.split("=", 1) for line in path.read_text().splitlines())
 
 
 class TestSummarisingAMatch:
@@ -205,6 +220,47 @@ class TestSummarisingAMatch:
         root, stub = games
         summarise(root, stub, root / "outputs")
         assert not (root / "remarks.txt").exists()
+
+    def test_a_sequential_test_hands_back_its_verdict_and_its_counts(self, games):
+        # what lets a caller chain the batches: the next one takes `carried`
+        # as its `prior_pairs`, and plays at all only on `inconclusive`
+        root, stub = games
+        outputs = root / "outputs"
+        assert summarise(root, stub, outputs, sprt="true").returncode == 0
+        written = outputs_of(outputs)
+        assert written["verdict"] == "inconclusive"
+        assert written["carried"] == "1,2,3,4,5"
+
+    def test_a_run_that_is_not_a_sequential_test_hands_back_neither(self, games):
+        # the keys are there and empty rather than missing, so a caller reads
+        # an empty verdict as nothing to chain rather than as a failed test
+        root, stub = games
+        outputs = root / "outputs"
+        assert summarise(root, stub, outputs).returncode == 0
+        written = outputs_of(outputs)
+        assert written["verdict"] == ""
+        assert written["carried"] == ""
+
+    def test_an_estimate_that_dies_on_the_json_is_not_passed_off_as_a_result(
+        self, games
+    ):
+        # the json is read through a pipe, and without pipefail a tool that
+        # died there would leave the verdict empty and the run green
+        root, stub = games
+        executable(
+            stub / "python3",
+            """
+            if [ "$1" = "-m" ] && [ "$2" = "mache.match_estimate" ]; then
+                for argument in "$@"; do
+                    [ "$argument" = "--json" ] && exit 4
+                done
+                echo "+3 ±2 Elo (200 games)"
+                exit 0
+            fi
+            exec /usr/bin/python3 "$@"
+        """,
+        )
+        assert summarise(root, stub, root / "outputs").returncode != 0
 
     def test_no_shard_uploaded_any_games_is_an_error(self, games):
         root, stub = games
