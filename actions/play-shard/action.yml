@@ -44,6 +44,18 @@ inputs:
       Picks the region of the book each shard plays, and is not a shuffle. A
       seed given by hand replays an earlier run's schedule.
     required: true
+  batches:
+    description: >
+      Batches in the sequential test this shard belongs to. The whole test is
+      reserved in the book at once, so a batch after the first plays openings
+      no earlier batch played. One is an unbatched run.
+    default: "1"
+  batch:
+    description: >
+      Which batch this is, counted from zero. Batches chained inside one run
+      share a seed, so a caller that chains them has to say which this is or
+      every batch replays the first one's openings.
+    default: "0"
   time_control:
     description: The time control, as fastchess reads it.
     required: true
@@ -98,9 +110,12 @@ runs:
         SHARDS: ${{ inputs.shards }}
         SHARD: ${{ inputs.shard }}
         SEED: ${{ inputs.seed }}
+        BATCH: ${{ inputs.batch }}
+        BATCHES: ${{ inputs.batches }}
       run: |
         "${GITHUB_ACTION_PATH}/slice.sh" "$BOOK_TABLE" "$BOOK" "$WORKDIR" \
-          "$PAIRS" "$SHARDS" "$SHARD" "$SEED" > slice.txt 2> remarks.txt \
+          "$PAIRS" "$SHARDS" "$SHARD" "$SEED" "$BATCH" "$BATCHES" \
+          > slice.txt 2> remarks.txt \
           || { echo "::error::$(cat remarks.txt)"; exit 1; }
         while read -r remark; do
           echo "::warning::${remark}"

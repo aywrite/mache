@@ -30,7 +30,8 @@ def book_of(directory, openings):
     return directory
 
 
-def run(workdir, pairs, shards, shard, seed="7"):
+def run(workdir, pairs, shards, shard, seed="7", batch=None, batches=None):
+    tail = [] if batch is None else [str(batch), str(batches)]
     return subprocess.run(
         [
             str(SLICE),
@@ -41,6 +42,7 @@ def run(workdir, pairs, shards, shard, seed="7"):
             str(shards),
             str(shard),
             str(seed),
+            *tail,
         ],
         capture_output=True,
         text=True,
@@ -73,6 +75,21 @@ def test_two_shards_of_one_run_start_in_different_places(tmp_path):
     first = sliced(run(workdir, pairs=10, shards=2, shard=0))["start"]
     second = sliced(run(workdir, pairs=10, shards=2, shard=1))["start"]
     assert first != second
+
+
+def test_two_batches_of_one_seed_start_in_different_places(tmp_path):
+    # the case the arguments exist for: batches chained inside one run share a
+    # seed, and without them the second would start where the first did
+    workdir = book_of(tmp_path / "tools", 1000)
+    first = sliced(run(workdir, pairs=10, shards=2, shard=0, batch=0, batches=4))
+    second = sliced(run(workdir, pairs=10, shards=2, shard=0, batch=1, batches=4))
+    assert int(second["start"]) - int(first["start"]) == 20
+
+
+def test_a_run_that_names_no_batch_plays_what_it_played_before(tmp_path):
+    workdir = book_of(tmp_path / "tools", 1000)
+    given = sliced(run(workdir, pairs=10, shards=2, shard=1, batch=0, batches=1))
+    assert sliced(run(workdir, pairs=10, shards=2, shard=1)) == given
 
 
 def test_a_seed_replays_the_schedule(tmp_path):
