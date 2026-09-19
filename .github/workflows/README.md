@@ -87,6 +87,45 @@ reads an **opponent table**, described in
 [`actions/plan-ladder/README.md`](../../actions/plan-ladder/README.md).
 `tests/fixtures/books.sh` is a worked example of the first.
 
+## Early stopping, and what a batch is
+
+A sequential test is judged at batch boundaries, so a batch that settles it is
+where the games should stop. `batches` is how many `strength.yml` may play
+before it reports inconclusive:
+
+```yaml
+      sprt: true
+      games: 500
+      batches: 4
+```
+
+`games` is the size of one batch either way, so this plays up to 2,000 and
+stops as soon as the pooled pairs cross a bound. The default is `1`, which is
+one batch and exactly what a caller played before this existed.
+
+Four is as deep as the ladder goes. Actions has no loop and `uses:` is not an
+expression, so the stages are written out in `strength.yml` and their number is
+the ceiling; asking for more is refused rather than quietly truncated. A test
+that wants more carries on in a second run, the way every batch did before:
+take the `carried` output and hand it to the next run as `prior_pairs`.
+
+Three outputs come back rather than one. `verdict` is `passed`, `failed` or
+`inconclusive`, and is empty when the run was not a sequential test. `carried`
+is the pair counts of the whole test. `line` is the last batch that played.
+
+Two things follow from the batches sharing a run.
+
+**They share a seed**, and the book is reserved for the test rather than for
+each batch, so no two of them play the same opening. This is not a detail: the
+batches are pooled, and a position played twice would be counted twice. A
+caller writing its own job graph out of the actions has to pass `batch` and
+`batches` to `play-shard` itself, or every batch starts where the first one
+did and nothing says so.
+
+**They share a run id and an attempt**, so the artifacts carry the batch as
+well: `<prefix>-<run>-<attempt>-batch-<n>-shard-<i>`. A run of one batch keeps
+the name it had, without the batch in it.
+
 ## Pinning, and the lag in it
 
 Call these at a tag.
@@ -110,6 +149,15 @@ What this costs is the lag. A fix to an action is in the actions at the release
 that carries it, and in the reusable workflows one release later. If you call
 the actions directly you do not have this problem, and if you call these and
 need a fix sooner, pin to the commit that carries it rather than to the tag.
+
+None of that applies to `batch.yml`, which `strength.yml` reaches by a relative
+path rather than a pin, so you get the one from the release you called. That
+works because a relative reference inside a called workflow is resolved in the
+repository that holds it, at that repository's own commit, and not in yours:
+run 35444376094 of the engine this was written for called a workflow here that
+reached a second one beside it, and the log named it at this repository's sha.
+A pin could not have done the same job, because the release that first carried
+`batch.yml` had no earlier tag holding one.
 
 ## Not included
 

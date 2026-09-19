@@ -284,3 +284,100 @@ jobs:
           # a different file in every step, so a later step grepping it reads
           # an empty one and would pass whatever the summary said.
           grep -q "Read by mache" report.md
+
+  batches:
+    # The failure this guards is silent, which is why it is a job and not a
+    # unit test. Batches chained inside one run share a seed, because they
+    # share a run id. If each reserved only its own games they would all start
+    # at the same opening, the pooled estimate would count those positions
+    # twice, and the test would report a tighter interval than its games
+    # earned with nothing failing and nothing to read back.
+    #
+    # So the two batches are played for real and their openings compared. At
+    # seed 7 over 34,700 openings, two batches of one shard of two pairs start
+    # at 8 and at 10.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./actions/setup # zizmor: ignore[self-repository]
+        with:
+          book_table: tests/fixtures/books.sh
+
+      - name: Build the engine both sides play
+        run: |
+          tests/fixtures/opponents.sh build stash v17.0 tools/new
+          cp tools/new tools/old
+
+      - uses: ./actions/play-shard # zizmor: ignore[self-repository]
+        id: first
+        with:
+          candidate: new
+          candidate_binary: ./new
+          opponent: old
+          opponent_binary: ./old
+          book: 8moves_v3
+          book_table: tests/fixtures/books.sh
+          pairs: 2
+          shards: 1
+          shard: 0
+          seed: 7
+          batch: 0
+          batches: 2
+          time_control: 1+0.01
+          max_match_minutes: 5
+
+      - name: Keep the first batch's games
+        run: mv tools/games.pgn first.pgn
+
+      # the same seed, deliberately: it is the run's, and every batch of one
+      # test is given it
+      - uses: ./actions/play-shard # zizmor: ignore[self-repository]
+        id: second
+        with:
+          candidate: new
+          candidate_binary: ./new
+          opponent: old
+          opponent_binary: ./old
+          book: 8moves_v3
+          book_table: tests/fixtures/books.sh
+          pairs: 2
+          shards: 1
+          shard: 0
+          seed: 7
+          batch: 1
+          batches: 2
+          time_control: 1+0.01
+          max_match_minutes: 5
+
+      - name: The two batches played different openings
+        env:
+          FIRST: ${{ steps.first.outputs.start }}
+          SECOND: ${{ steps.second.outputs.start }}
+        run: |
+          # what each was told to play
+          test "$FIRST" = "8"
+          test "$SECOND" = "10"
+
+          # and what it actually played, which is the part a wrong index
+          # would not show. fastchess writes the opening it was given as the
+          # first line of movetext, so the games themselves say which
+          # positions were used
+          openings() {
+            awk '/^1\./ { print substr($0, 1, 60) }' "$1" | sort -u
+          }
+          openings first.pgn > first.txt
+          openings tools/games.pgn > second.txt
+          test -s first.txt
+          test -s second.txt
+          if [ -n "$(comm -12 first.txt second.txt)" ]; then
+            echo "::error::the two batches played openings in common, so the pooled estimate would count them twice"
+            comm -12 first.txt second.txt
+            exit 1
+          fi

@@ -11,12 +11,18 @@ the workflows take nothing from a caller they do not use.
 
 The self pin is the fragile part. These workflows call actions out of the
 repository they live in, by name and tag rather than by a relative path, because
-a relative path inside a called workflow is resolved against something this
-repository cannot test from here. That buys certainty and costs a tag that has
-to be moved by hand: the release cannot move it, because a release commit is
-pushed by GITHUB_TOKEN and GitHub refuses that token any write under
+a composite action has no relative form from a workflow. That costs a tag that
+has to be moved by hand: the release cannot move it, because a release commit
+is pushed by GITHUB_TOKEN and GitHub refuses that token any write under
 .github/workflows/. So what is checked here is the shape of the pins rather
 than their freshness, and the readme beside the workflows says what the lag is.
+
+One workflow calling another is the case that does have a relative form, and
+strength.yml uses it for batch.yml. A run from a consuming repository
+(35444376094, 19 September 2026) resolved the relative reference inside this
+repository at this repository's own commit rather than inside the caller's, so
+a caller pinning a release of strength.yml gets the batch.yml of that release.
+A pin could not have said that on the release that first carried one.
 
 The files are read as text as well as parsed, because what is being checked is
 partly how they are written.
@@ -29,7 +35,10 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 WORKFLOWS = ROOT / ".github" / "workflows"
-REUSABLE = ["strength.yml", "calibrate.yml"]
+REUSABLE = ["strength.yml", "calibrate.yml", "batch.yml"]
+
+# the stages strength.yml has written out, which is the cap it accepts
+LADDER = 4
 
 # `uses: aywrite/mache/actions/<name>@<ref>`
 SELF_USE = re.compile(r"uses:\s*aywrite/mache/actions/([a-z-]+)@(\S+)")
@@ -96,6 +105,46 @@ def test_it_does_not_persist_the_token_it_checked_out_with(name):
     assert body.count("persist-credentials: false") == checkouts, (
         f"{name} has {checkouts} checkouts and does not disarm all of them"
     )
+
+
+def test_the_ladder_is_as_deep_as_the_input_it_accepts():
+    # the two are written in different places and neither is derived from the
+    # other, so a stage added without the guard moving would be unreachable
+    # and a guard raised without a stage would take a test it cannot play
+    body = text_of("strength.yml")
+    stages = re.findall(r"\n  batch(\d+):\n", body)
+    assert [int(stage) for stage in stages] == list(range(1, LADDER + 1))
+    assert f"-le {LADDER} " in body, "the guard does not name the stages there are"
+
+
+def test_every_stage_plays_a_batch_of_its_own():
+    # the whole point: two stages given the same batch index would reserve the
+    # same openings and the pooled estimate would count them twice
+    body = text_of("strength.yml")
+    assert re.findall(r"\n      batch: (\d+)\n", body) == [
+        str(stage) for stage in range(LADDER)
+    ]
+
+
+def test_a_stage_plays_only_where_the_one_before_settled_nothing():
+    # the early stop itself. A stage that ran unguarded would play games the
+    # test had already decided it did not need
+    body = text_of("strength.yml")
+    for stage in range(2, LADDER + 1):
+        guard = f"needs.batch{stage - 1}.outputs.verdict == 'inconclusive'"
+        assert guard in body, f"batch{stage} is not guarded on batch{stage - 1}"
+        carried = f"prior_pairs: ${{{{ needs.batch{stage - 1}.outputs.carried }}}}"
+        assert carried in body, f"batch{stage} does not carry batch{stage - 1}'s pairs"
+
+
+def test_a_batch_names_itself_in_the_artifacts_it_writes_and_reads():
+    # every batch of one test shares a run id and an attempt. Without the
+    # batch in the name, a later batch would collide on upload and its summary
+    # would pool the earlier batch's games and add its counts on top
+    body = text_of("batch.yml")
+    naming = "format('-batch-{0}', inputs.batch)"
+    assert body.count(naming) == 2, "the name and the pattern do not both carry it"
+    assert body.count("${{ env.ARTIFACTS }}-shard-") == 3
 
 
 def test_the_build_contract_is_documented_where_the_workflows_point():
