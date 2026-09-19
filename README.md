@@ -244,6 +244,15 @@ shard of a run asks with the same `--openings`, `--pairs`, `--shards` and
 `--seed`, and its own `--shard`, so the slices are worked out from the run's
 own numbers and no two of them hold an opening in common.
 
+A sequential test pools its batches the same way it pools its shards, so the
+rule holds across them too, and `--batches` with `--batch` is how a caller
+says so. What is then reserved is the whole test rather than one batch of it,
+and a batch takes the slice after the batch before it. This matters where the
+batches are chained inside one run, because they share a seed: each reserving
+its own games alone would start every batch where the first one started, and
+the pooled estimate would count those positions twice with nothing failing.
+A caller that passes neither plays what an unbatched run plays.
+
 ## The part that is not obvious
 
 A sharded match is not a long match cut up. Three things have to hold or the
@@ -275,8 +284,11 @@ sequential test played are an argument: a run prints them at the end of its
 verdict and the next run is handed them back with `--prior-pairs`. That is a
 decision and not an omission.
 
-Carrying five numbers by hand is the price. A caller that loses them has lost
-the test and has to start it again. What it buys is that a run says on its face
+Carrying five numbers is the price. A caller that loses them has lost the test
+and has to start it again. `actions/summarise-match` hands them back as
+`carried`, beside the `verdict` that says whether another batch is wanted at
+all, so a caller writing its own job graph passes them on rather than a person
+retyping them between runs. What it buys is that a run says on its face
 what it was judged over, so a reader checks the count against the batches that
 were played rather than trusting a file nobody looked at. Stored state would
 also have to be one thing per test, and a tool that cannot see which test a run
