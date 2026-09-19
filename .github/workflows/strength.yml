@@ -71,6 +71,16 @@ on:
         description: The pair counts of the batches already played. Empty for the first.
         type: string
         default: ""
+      batches:
+        description: >
+          How many batches the sequential test may play before it reports
+          inconclusive and stops. `games` is the size of one batch either way,
+          so the whole test is capped at `games` times this. One is what a
+          caller played before batches existed, and plays the same games.
+          Four is as deep as the ladder below is written; asking for more is
+          refused rather than quietly truncated.
+        type: number
+        default: 1
       seed:
         description: Picks the region of the book each shard plays. The run id by default, and the manifest records it either way.
         type: string
@@ -119,8 +129,21 @@ on:
         default: 90
     outputs:
       line:
-        description: The one line a release note carries. Empty when there was nothing to compare against.
-        value: ${{ jobs.summarise.outputs.line }}
+        description: >
+          The one line a release note carries, from the last batch that
+          played. Empty when there was nothing to compare against.
+        value: ${{ jobs.batch4.outputs.line || jobs.batch3.outputs.line || jobs.batch2.outputs.line || jobs.batch1.outputs.line }}
+      verdict:
+        description: >
+          What the sequential test came to over every pair it played: passed,
+          failed, or inconclusive where the last batch of the ladder settled
+          nothing. Empty when the run was not a sequential test.
+        value: ${{ jobs.batch4.outputs.verdict || jobs.batch3.outputs.verdict || jobs.batch2.outputs.verdict || jobs.batch1.outputs.verdict }}
+      carried:
+        description: >
+          The pair counts of the whole test, for a caller carrying it on in
+          another run. That is what an inconclusive verdict is handed back for.
+        value: ${{ jobs.batch4.outputs.carried || jobs.batch3.outputs.carried || jobs.batch2.outputs.carried || jobs.batch1.outputs.carried }}
       baseline_sha:
         description: The commit the baseline resolved to. Empty means the match was skipped.
         value: ${{ jobs.resolve.outputs.baseline_sha }}
@@ -151,6 +174,17 @@ jobs:
           # the tags are what the default baseline looks through
           fetch-depth: 0
           persist-credentials: false
+
+      # before a runner builds anything, and here rather than in plan-shards
+      # because it is this file's ladder that sets the ceiling, not the plan
+      - name: Check the test fits the ladder
+        env:
+          BATCHES: ${{ inputs.batches }}
+        run: |
+          [ "$BATCHES" -ge 1 ] && [ "$BATCHES" -le 4 ] || {
+            echo "::error::batches is 1 to 4, the stages this workflow has, and was ${BATCHES}. A longer test is carried on by a second run, with prior_pairs"
+            exit 1
+          }
 
       - uses: aywrite/mache/actions/resolve-ref@v0.3.0
         id: candidate
@@ -184,207 +218,162 @@ jobs:
           book_table: ${{ inputs.book_table }}
           max_match_minutes: ${{ inputs.max_match_minutes }}
 
-  play:
+  # The batch ladder. Actions has no loop and `uses:` is not an expression, so
+  # the stages are written out, and the count above is how deep this file goes.
+  # Each waits on the one before and plays only where it settled nothing, which
+  # is the early stop: a decided test stops playing. They share a seed, and
+  # batch.yml's reservation is what keeps them off each other's openings.
+  #
+  # A run that is not a sequential test has no verdict to be inconclusive, so
+  # it stops after the first stage whatever `batches` says.
+  batch1:
     needs: resolve
     if: needs.resolve.outputs.baseline_sha != ''
-    runs-on: ubuntu-latest
-    strategy:
-      # a shard that fell over is a smaller sample, not a lost run
-      fail-fast: false
-      matrix:
-        shard: ${{ fromJSON(needs.resolve.outputs.shards) }}
-    timeout-minutes: ${{ fromJSON(needs.resolve.outputs.play_timeout) }}
-    defaults:
-      run:
-        shell: bash
-    env:
-      SEED: ${{ inputs.seed || github.run_id }}
-      CANDIDATE: ${{ needs.resolve.outputs.candidate_name }}
-      CANDIDATE_SHA: ${{ needs.resolve.outputs.candidate_sha }}
-      BASELINE: ${{ needs.resolve.outputs.baseline_name }}
-      BASELINE_SHA: ${{ needs.resolve.outputs.baseline_sha }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-          persist-credentials: false
+    # relative, so the batch definition is this file's own rather than
+    # a tag of it. A caller pinning a release of this workflow gets the
+    # batch.yml of that same release, which a pin could not have given on
+    # the release that first carried one
+    uses: ./.github/workflows/batch.yml
+    with:
+      batch: 0
+      batches: ${{ inputs.batches }}
+      prior_pairs: ${{ inputs.prior_pairs }}
+      build: ${{ inputs.build }}
+      candidate_name: ${{ needs.resolve.outputs.candidate_name }}
+      candidate_sha: ${{ needs.resolve.outputs.candidate_sha }}
+      baseline_name: ${{ needs.resolve.outputs.baseline_name }}
+      baseline_sha: ${{ needs.resolve.outputs.baseline_sha }}
+      shards: ${{ needs.resolve.outputs.shards }}
+      count: ${{ needs.resolve.outputs.count }}
+      pairs: ${{ needs.resolve.outputs.pairs }}
+      play_timeout: ${{ fromJSON(needs.resolve.outputs.play_timeout) }}
+      book: ${{ needs.resolve.outputs.book }}
+      book_table: ${{ inputs.book_table }}
+      seed: ${{ inputs.seed || github.run_id }}
+      time_control: ${{ inputs.time_control }}
+      sprt: ${{ inputs.sprt }}
+      elo0: ${{ inputs.elo0 }}
+      elo1: ${{ inputs.elo1 }}
+      cache_paths: ${{ inputs.cache_paths }}
+      cache_key: ${{ inputs.cache_key }}
+      manifest_extra: ${{ inputs.manifest_extra }}
+      hash_mb: ${{ inputs.hash_mb }}
+      concurrency: ${{ inputs.concurrency }}
+      max_match_minutes: ${{ inputs.max_match_minutes }}
+      startup_ms: ${{ inputs.startup_ms }}
+      artifact_prefix: ${{ inputs.artifact_prefix }}
+      retention_days: ${{ inputs.retention_days }}
 
-      - uses: aywrite/mache/actions/setup@v0.3.0
-        id: tools
-        with:
-          book_table: ${{ inputs.book_table }}
+  batch2:
+    needs: [resolve, batch1]
+    if: needs.batch1.outputs.verdict == 'inconclusive'
+    # relative, so the batch definition is this file's own rather than
+    # a tag of it. A caller pinning a release of this workflow gets the
+    # batch.yml of that same release, which a pin could not have given on
+    # the release that first carried one
+    uses: ./.github/workflows/batch.yml
+    with:
+      batch: 1
+      batches: ${{ inputs.batches }}
+      prior_pairs: ${{ needs.batch1.outputs.carried }}
+      build: ${{ inputs.build }}
+      candidate_name: ${{ needs.resolve.outputs.candidate_name }}
+      candidate_sha: ${{ needs.resolve.outputs.candidate_sha }}
+      baseline_name: ${{ needs.resolve.outputs.baseline_name }}
+      baseline_sha: ${{ needs.resolve.outputs.baseline_sha }}
+      shards: ${{ needs.resolve.outputs.shards }}
+      count: ${{ needs.resolve.outputs.count }}
+      pairs: ${{ needs.resolve.outputs.pairs }}
+      play_timeout: ${{ fromJSON(needs.resolve.outputs.play_timeout) }}
+      book: ${{ needs.resolve.outputs.book }}
+      book_table: ${{ inputs.book_table }}
+      seed: ${{ inputs.seed || github.run_id }}
+      time_control: ${{ inputs.time_control }}
+      sprt: ${{ inputs.sprt }}
+      elo0: ${{ inputs.elo0 }}
+      elo1: ${{ inputs.elo1 }}
+      cache_paths: ${{ inputs.cache_paths }}
+      cache_key: ${{ inputs.cache_key }}
+      manifest_extra: ${{ inputs.manifest_extra }}
+      hash_mb: ${{ inputs.hash_mb }}
+      concurrency: ${{ inputs.concurrency }}
+      max_match_minutes: ${{ inputs.max_match_minutes }}
+      startup_ms: ${{ inputs.startup_ms }}
+      artifact_prefix: ${{ inputs.artifact_prefix }}
+      retention_days: ${{ inputs.retention_days }}
 
-      # Generic, because a reusable workflow cannot be handed a cache action.
-      # A caller that wants one that understands its toolchain calls the six
-      # actions and keeps its own step.
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        if: inputs.cache_paths != ''
-        with:
-          path: ${{ inputs.cache_paths }}
-          key: ${{ inputs.cache_key }}
+  batch3:
+    needs: [resolve, batch2]
+    if: needs.batch2.outputs.verdict == 'inconclusive'
+    # relative, so the batch definition is this file's own rather than
+    # a tag of it. A caller pinning a release of this workflow gets the
+    # batch.yml of that same release, which a pin could not have given on
+    # the release that first carried one
+    uses: ./.github/workflows/batch.yml
+    with:
+      batch: 2
+      batches: ${{ inputs.batches }}
+      prior_pairs: ${{ needs.batch2.outputs.carried }}
+      build: ${{ inputs.build }}
+      candidate_name: ${{ needs.resolve.outputs.candidate_name }}
+      candidate_sha: ${{ needs.resolve.outputs.candidate_sha }}
+      baseline_name: ${{ needs.resolve.outputs.baseline_name }}
+      baseline_sha: ${{ needs.resolve.outputs.baseline_sha }}
+      shards: ${{ needs.resolve.outputs.shards }}
+      count: ${{ needs.resolve.outputs.count }}
+      pairs: ${{ needs.resolve.outputs.pairs }}
+      play_timeout: ${{ fromJSON(needs.resolve.outputs.play_timeout) }}
+      book: ${{ needs.resolve.outputs.book }}
+      book_table: ${{ inputs.book_table }}
+      seed: ${{ inputs.seed || github.run_id }}
+      time_control: ${{ inputs.time_control }}
+      sprt: ${{ inputs.sprt }}
+      elo0: ${{ inputs.elo0 }}
+      elo1: ${{ inputs.elo1 }}
+      cache_paths: ${{ inputs.cache_paths }}
+      cache_key: ${{ inputs.cache_key }}
+      manifest_extra: ${{ inputs.manifest_extra }}
+      hash_mb: ${{ inputs.hash_mb }}
+      concurrency: ${{ inputs.concurrency }}
+      max_match_minutes: ${{ inputs.max_match_minutes }}
+      startup_ms: ${{ inputs.startup_ms }}
+      artifact_prefix: ${{ inputs.artifact_prefix }}
+      retention_days: ${{ inputs.retention_days }}
 
-      - name: Build both versions
-        env:
-          BUILD: ${{ inputs.build }}
-        run: |
-          # a pull request head is not fetched by default, and the resolve
-          # job's fetch was on another machine
-          for sha in "$CANDIDATE_SHA" "$BASELINE_SHA"; do
-            git cat-file -e "${sha}^{commit}" 2>/dev/null \
-              || git fetch -q origin "$sha" \
-              || git fetch -q origin "+refs/pull/*/head:refs/remotes/pull/*"
-          done
-          "$BUILD" "$CANDIDATE_SHA" tools/new
-          "$BUILD" "$BASELINE_SHA" tools/old
-          for binary in tools/new tools/old; do
-            [ -x "$binary" ] \
-              || { echo "::error::${BUILD} left no runnable ${binary}"; exit 1; }
-          done
-
-      - uses: aywrite/mache/actions/play-shard@v0.3.0
-        id: play
-        with:
-          candidate: ${{ needs.resolve.outputs.candidate_name }}
-          candidate_binary: ./new
-          opponent: ${{ needs.resolve.outputs.baseline_name }}
-          opponent_binary: ./old
-          book: ${{ needs.resolve.outputs.book }}
-          book_table: ${{ inputs.book_table }}
-          pairs: ${{ needs.resolve.outputs.pairs }}
-          shards: ${{ needs.resolve.outputs.count }}
-          shard: ${{ matrix.shard }}
-          seed: ${{ inputs.seed || github.run_id }}
-          time_control: ${{ inputs.time_control }}
-          hash_mb: ${{ inputs.hash_mb }}
-          concurrency: ${{ inputs.concurrency }}
-          startup_ms: ${{ inputs.startup_ms }}
-          max_match_minutes: ${{ inputs.max_match_minutes }}
-
-      # What it would take to play this shard again, written whether or not it
-      # finished. A caller keeping its own record of its own runs writes this
-      # itself and calls the actions; this is the shape for everyone else.
-      - name: Write the manifest
-        if: always()
-        env:
-          FASTCHESS: ${{ steps.tools.outputs.fastchess }}
-          MACHE: ${{ steps.tools.outputs.version }}
-          BOOK: ${{ needs.resolve.outputs.book }}
-          BOOK_TABLE: ${{ inputs.book_table }}
-          PAIRS: ${{ needs.resolve.outputs.pairs }}
-          SHARD: ${{ matrix.shard }}
-          TIME_CONTROL: ${{ inputs.time_control }}
-          HASH: ${{ inputs.hash_mb }}
-          CONCURRENCY: ${{ inputs.concurrency }}
-          STARTUP_MS: ${{ inputs.startup_ms }}
-          MAX_MATCH_MINUTES: ${{ inputs.max_match_minutes }}
-          SPRT: ${{ inputs.sprt }}
-          ELO0: ${{ inputs.elo0 }}
-          ELO1: ${{ inputs.elo1 }}
-          PRIOR_PAIRS: ${{ inputs.prior_pairs }}
-          BUILD: ${{ inputs.build }}
-          MANIFEST_EXTRA: ${{ inputs.manifest_extra }}
-        run: |
-          # asked for again, since the play action may not have got that far
-          book_file=$("$BOOK_TABLE" file "$BOOK") || book_file=unknown
-          book_sha=$(sha256sum "tools/${book_file}" | cut -d' ' -f1) || book_sha=unknown
-          {
-            echo "candidate: ${CANDIDATE}"
-            echo "candidate_sha: ${CANDIDATE_SHA}"
-            echo "baseline: ${BASELINE}"
-            echo "baseline_sha: ${BASELINE_SHA}"
-            echo "build: ${BUILD}"
-            echo "fastchess: ${FASTCHESS}"
-            # the tooling that read the games, so a figure can be read back
-            # against the version that produced it
-            echo "mache: ${MACHE}"
-            echo "book: ${book_file}"
-            echo "book_sha256: ${book_sha}"
-            echo "book_openings: ${OPENINGS:-not counted, the shard did not get that far}"
-            echo "seed: ${SEED}"
-            echo "shard: ${SHARD}"
-            echo "start: ${START:-not chosen, the shard did not get that far}"
-            echo "pairs: ${PAIRS}"
-            echo "time_control: ${TIME_CONTROL}"
-            echo "hash_mb: ${HASH}"
-            echo "concurrency: ${CONCURRENCY}"
-            echo "startup_ms: ${STARTUP_MS}"
-            echo "games_asked: $((PAIRS * 2))"
-            if [ "$SPRT" = "true" ]; then
-              echo "sprt: judged by the summary over the pooled pairs, not by fastchess: elo0=${ELO0} elo1=${ELO1} alpha=0.05 beta=0.05 model=logistic prior_pairs=${PRIOR_PAIRS:-none}"
-            else
-              echo "sprt: off"
-            fi
-            echo "wall_clock_cap_minutes: ${MAX_MATCH_MINUTES}"
-            # unset when the play action never reached its end
-            echo "stopped_by: ${STOPPED_BY:-not recorded, the shard did not finish}"
-            echo "runner: $(uname -a)"
-            echo "cores: $(nproc)"
-            echo "run_id: ${GITHUB_RUN_ID}"
-            echo "run_url: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-            if [ -n "$MANIFEST_EXTRA" ]; then
-              echo "$MANIFEST_EXTRA"
-            fi
-          } > tools/manifest.txt
-          cat tools/manifest.txt
-
-      # The attempt is in the name because an artifact cannot be uploaded twice
-      # under one name and a rerun keeps the run id.
-      - name: Keep the games
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: ${{ inputs.artifact_prefix }}-${{ github.run_id }}-${{ github.run_attempt }}-shard-${{ matrix.shard }}
-          path: |
-            tools/games.pgn
-            tools/result.txt
-            tools/config.json
-            tools/manifest.txt
-          if-no-files-found: warn
-          retention-days: ${{ inputs.retention_days }}
-
-  summarise:
-    needs: [resolve, play]
-    # runs on whatever arrived, as long as there was a baseline to play
-    if: always() && needs.resolve.result == 'success' && needs.resolve.outputs.baseline_sha != ''
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    defaults:
-      run:
-        shell: bash
-    outputs:
-      line: ${{ steps.summary.outputs.line }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      # no harness to build and no book to fetch: this job only reads games
-      - uses: aywrite/mache/actions/setup@v0.3.0
-        with:
-          estimator_only: true
-
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          pattern: ${{ inputs.artifact_prefix }}-${{ github.run_id }}-${{ github.run_attempt }}-shard-*
-          path: shards
-
-      - uses: aywrite/mache/actions/summarise-match@v0.3.0
-        id: summary
-        with:
-          games: shards
-          candidate: ${{ needs.resolve.outputs.candidate_name }}
-          candidate_sha: ${{ needs.resolve.outputs.candidate_sha }}
-          baseline: ${{ needs.resolve.outputs.baseline_name }}
-          baseline_sha: ${{ needs.resolve.outputs.baseline_sha }}
-          shards: ${{ needs.resolve.outputs.count }}
-          time_control: ${{ inputs.time_control }}
-          sprt: ${{ inputs.sprt }}
-          elo0: ${{ inputs.elo0 }}
-          elo1: ${{ inputs.elo1 }}
-          prior_pairs: ${{ inputs.prior_pairs }}
-          provenance: >-
-            The games, the results and a manifest of what each shard played are
-            kept as the
-            `${{ inputs.artifact_prefix }}-${{ github.run_id }}-${{ github.run_attempt }}-shard-<i>`
-            artifacts. The openings came from seed
-            ${{ inputs.seed || github.run_id }}, which replays this schedule.
+  batch4:
+    needs: [resolve, batch3]
+    if: needs.batch3.outputs.verdict == 'inconclusive'
+    # relative, so the batch definition is this file's own rather than
+    # a tag of it. A caller pinning a release of this workflow gets the
+    # batch.yml of that same release, which a pin could not have given on
+    # the release that first carried one
+    uses: ./.github/workflows/batch.yml
+    with:
+      batch: 3
+      batches: ${{ inputs.batches }}
+      prior_pairs: ${{ needs.batch3.outputs.carried }}
+      build: ${{ inputs.build }}
+      candidate_name: ${{ needs.resolve.outputs.candidate_name }}
+      candidate_sha: ${{ needs.resolve.outputs.candidate_sha }}
+      baseline_name: ${{ needs.resolve.outputs.baseline_name }}
+      baseline_sha: ${{ needs.resolve.outputs.baseline_sha }}
+      shards: ${{ needs.resolve.outputs.shards }}
+      count: ${{ needs.resolve.outputs.count }}
+      pairs: ${{ needs.resolve.outputs.pairs }}
+      play_timeout: ${{ fromJSON(needs.resolve.outputs.play_timeout) }}
+      book: ${{ needs.resolve.outputs.book }}
+      book_table: ${{ inputs.book_table }}
+      seed: ${{ inputs.seed || github.run_id }}
+      time_control: ${{ inputs.time_control }}
+      sprt: ${{ inputs.sprt }}
+      elo0: ${{ inputs.elo0 }}
+      elo1: ${{ inputs.elo1 }}
+      cache_paths: ${{ inputs.cache_paths }}
+      cache_key: ${{ inputs.cache_key }}
+      manifest_extra: ${{ inputs.manifest_extra }}
+      hash_mb: ${{ inputs.hash_mb }}
+      concurrency: ${{ inputs.concurrency }}
+      max_match_minutes: ${{ inputs.max_match_minutes }}
+      startup_ms: ${{ inputs.startup_ms }}
+      artifact_prefix: ${{ inputs.artifact_prefix }}
+      retention_days: ${{ inputs.retention_days }}
