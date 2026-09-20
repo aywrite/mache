@@ -1,0 +1,30 @@
+name: Action ref probe
+# Throwaway. `uses: ./actions/<name>` inside a workflow called from another
+# repository either resolves in this repository or in the caller's checkout.
+# Which it is decides whether the reusable workflows can drop their action
+# pins, so it is asked of a real run rather than of the documentation.
+#
+# Two legs, because the answer may differ by whether a checkout has happened:
+# the real workflows check out the caller's repository before they use an
+# action, which is exactly the case that would be resolved against the wrong
+# tree.
+on:
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  bare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: ./actions/probe-only
+
+  after-checkout:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # the caller's repository, which is what the real workflows check out
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./actions/probe-only

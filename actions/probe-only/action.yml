@@ -1,0 +1,9 @@
+name: Probe only
+# Throwaway. Exists in this repository and in no caller, so reaching it says
+# where a relative action reference was resolved from.
+description: Says it was reached.
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: echo "the relative action reference resolved inside mache"
