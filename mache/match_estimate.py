@@ -115,6 +115,82 @@ def read_games(text: str, candidate: str) -> tuple[dict[str, list[float]], int]:
     return rounds, unfinished
 
 
+# Every move fastchess writes carries a comment, a played one holding what the
+# engine reported and a book one holding the word `book`. So the comments are
+# the moves in order, and which side made one is its place in that order.
+COMMENT = re.compile(r"\{([^}]*)\}")
+# the seconds the move took, which fastchess puts straight after the eval
+SPENT = re.compile(r"^\S+ (\d+(?:\.\d+)?)s")
+# what the clock had left after it, and what the search visited
+LEFT = re.compile(r"\btl=(\d+(?:\.\d+)?)s")
+VISITED = re.compile(r"\bn=(\d+)")
+
+
+class Instruments:
+    """What one side's clock and search did, added up over its moves.
+
+    This is the third thing a suspicious result is read against, beside the
+    score and the terminations: a difference that is really one side being
+    given more time, or searching more nodes for it, shows here and nowhere
+    else. It is counted from the games rather than from a result block so
+    that it pools across shards the way the estimate does."""
+
+    def __init__(self) -> None:
+        self.moves = 0
+        self.nodes = 0
+        self.seconds = 0.0
+        # the tightest the clock ever got, which is where a loss on time
+        # would have come from
+        self.least_left: float | None = None
+
+    def add(self, comment: str) -> None:
+        visited, spent = VISITED.search(comment), SPENT.match(comment)
+        if not visited:
+            # a book move, which the engine did not think about
+            return
+        self.moves += 1
+        self.nodes += int(visited.group(1))
+        if spent:
+            self.seconds += float(spent.group(1))
+        if left := LEFT.search(comment):
+            remaining = float(left.group(1))
+            if self.least_left is None or remaining < self.least_left:
+                self.least_left = remaining
+
+    def pool(self, other: "Instruments") -> None:
+        self.moves += other.moves
+        self.nodes += other.nodes
+        self.seconds += other.seconds
+        if other.least_left is not None and (
+            self.least_left is None or other.least_left < self.least_left
+        ):
+            self.least_left = other.least_left
+
+    @property
+    def nps(self) -> float:
+        return self.nodes / self.seconds if self.seconds else 0.0
+
+
+def read_instruments(text: str, candidate: str) -> dict[str, Instruments]:
+    """Each side's clock and search over one shard's games, by name.
+
+    The side is read from the tags and the order of the moves rather than
+    assumed: `-repeat` plays the second game of every round the other way
+    round, so a side is an engine and not a colour."""
+    found: dict[str, Instruments] = {}
+    for record in RECORD.split(text)[1:]:
+        tags = dict(TAG.findall(record))
+        white, black = tags.get("White"), tags.get("Black")
+        if not (white and black) or candidate not in (white, black):
+            continue
+        # the moves, which start after the last tag
+        moves = record[record.rfind("]") + 1 :]
+        for number, comment in enumerate(COMMENT.findall(moves)):
+            side = white if number % 2 == 0 else black
+            found.setdefault(side, Instruments()).add(comment)
+    return found
+
+
 def pair_up(rounds: dict[str, list[float]]) -> tuple[list[float], int]:
     """The pair scores of one shard, out of two, and the games left over.
 
@@ -136,6 +212,9 @@ class Shard:
 
     def __init__(self, name: str, text: str, candidate: str):
         self.name = name
+        # the name fastchess played it under, so the report can order the
+        # sides the same way round whatever they are called
+        self.candidate = candidate
         found = SHARD.search(name)
         self.index = int(found.group(1)) if found else None
         rounds, self.unfinished = read_games(text, candidate)
@@ -143,6 +222,7 @@ class Shard:
         self.pairs, self.unpaired = pair_up(rounds)
         totals, _ = match_terminations.count(text)
         self.faults = sum(totals[ending] for ending in match_terminations.FAULTS)
+        self.instruments = read_instruments(text, candidate)
 
     @property
     def points(self) -> float:
@@ -514,6 +594,56 @@ def table(shards: list[Shard], estimate: Estimate) -> list[str]:
     return rows
 
 
+def pool_instruments(shards: list[Shard]) -> dict[str, Instruments]:
+    """Every side's clock and search over the whole match."""
+    pooled: dict[str, Instruments] = {}
+    for shard in shards:
+        for side, found in shard.instruments.items():
+            pooled.setdefault(side, Instruments()).pool(found)
+    return pooled
+
+
+def instruments(pooled: dict[str, Instruments], candidate: str) -> list[str]:
+    """What each side's clock and search did, as the report prints it.
+
+    The candidate goes first whatever it is called, so two runs read the same
+    way round. The ratios are what a reader is after: a score that is really
+    one side being given more time, or more nodes for the time, shows as a
+    ratio away from one here while the elo says nothing about why."""
+    if not pooled:
+        return []
+    sides = sorted(pooled, key=lambda side: side != candidate)
+    rows = [
+        "| side | moves | nodes | time | nodes a second | least time left |",
+        "| --- | ---: | ---: | ---: | ---: | ---: |",
+    ]
+    for side in sides:
+        found = pooled[side]
+        left = "-" if found.least_left is None else f"{found.least_left:.3f} s"
+        rows.append(
+            f"| {side} | {found.moves:,} | {found.nodes:,} |"
+            f" {found.seconds:,.1f} s | {found.nps:,.0f} | {left} |"
+        )
+    remark = ""
+    if len(sides) == 2:
+        first, second = (pooled[side] for side in sides)
+        if second.seconds and second.nodes:
+            remark = (
+                f"\n{sides[0]} had {first.seconds / second.seconds:.3f} times"
+                f" the time and {first.nodes / second.nodes:.3f} times the"
+                f" nodes of {sides[1]}, at"
+                f" {first.nps / second.nps:.3f} times the rate."
+                if second.nps
+                else ""
+            )
+    return [
+        "The clocks and the search, over the moves the engines thought about:",
+        "",
+        *rows,
+        *([remark] if remark else []),
+    ]
+
+
 def report(
     shards: list[Shard], estimate: Estimate, text: str, sprt: Sprt | None = None
 ) -> str:
@@ -548,6 +678,8 @@ def report(
         "```",
         match_terminations.block(*match_terminations.count(text)),
         "```",
+        "",
+        *instruments(pool_instruments(shards), shards[0].candidate if shards else ""),
         "",
         # Which estimator priced these games. A later version can price the
         # same games differently, and a figure kept without its version cannot
@@ -625,6 +757,18 @@ def as_json(
             },
         ),
         "pentanomial": [counted[score] for score in PENTANOMIAL],
+        # the clocks and the search, so a reader that is not a person can
+        # check the same thing the report's table is there for
+        "instruments": {
+            side: {
+                "moves": found.moves,
+                "nodes": found.nodes,
+                "seconds": round(found.seconds, 3),
+                "nps": round(found.nps, 1),
+                "least_time_left": found.least_left,
+            }
+            for side, found in sorted(pool_instruments(shards).items())
+        },
         "sprt": None
         if sprt is None
         else {

@@ -793,3 +793,95 @@ class TestJson:
         result = self.run(tmp_path, [drawn(1)], "--json", "--line")
         assert result.returncode != 0
         assert "not allowed with argument" in result.stderr
+
+
+class TestInstruments:
+    """The clocks and the node counts, which a suspicious result is read
+    against. They live in the move comments, which nothing read before, and
+    the registration that asks for them is answered from the run's own log
+    rather than from artifacts a later session may not reach."""
+
+    @staticmethod
+    def thought(seconds, left, nodes):
+        return (
+            f"{{+0.15/5 {seconds}s, tl={left}s, latency=0.000s, n={nodes},"
+            ' sd=20, nps=8348500, hashfull=0, pv="e1g1"}'
+        )
+
+    def played(self, white, black, moves):
+        """A game whose moves carry the comments given, in order."""
+        text = ""
+        for number, comment in enumerate(moves):
+            if number % 2 == 0:
+                text += f"{number // 2 + 1}. e4 {comment} "
+            else:
+                text += f"e5 {comment} "
+        return (
+            f'[Event "Fastchess Tournament"]\n[Site "?"]\n[Round "1"]\n'
+            f'[White "{white}"]\n[Black "{black}"]\n[Result "1-0"]\n'
+            f'[Termination "normal"]\n\n{text}1-0\n\n'
+        )
+
+    def test_a_side_is_an_engine_and_not_a_colour(self):
+        # -repeat plays the second game of a round the other way round, so
+        # counting by colour would add the two engines together
+        from mache.match_estimate import read_instruments
+
+        first = self.played(
+            "new",
+            "old",
+            [self.thought("0.1", "2.0", 1000), self.thought("0.2", "2.0", 9000)],
+        )
+        second = self.played(
+            "old",
+            "new",
+            [self.thought("0.1", "2.0", 9000), self.thought("0.2", "2.0", 1000)],
+        )
+        found = read_instruments(first + second, "new")
+        assert found["new"].nodes == 2000
+        assert found["old"].nodes == 18000
+
+    def test_a_book_move_is_not_counted_but_keeps_its_place(self):
+        # the engine did not think about it, so it is not its search; the move
+        # was still made, so dropping it would hand the rest to the wrong side
+        from mache.match_estimate import read_instruments
+
+        text = self.played(
+            "new",
+            "old",
+            ["{book}", "{book}", self.thought("0.3", "1.9", 7000)],
+        )
+        found = read_instruments(text, "new")
+        assert found["new"].moves == 1
+        assert found["new"].nodes == 7000
+        assert "old" not in found or found["old"].moves == 0
+
+    def test_the_least_time_left_is_the_tightest_the_clock_got(self):
+        from mache.match_estimate import read_instruments
+
+        text = self.played(
+            "new",
+            "old",
+            [
+                self.thought("0.1", "2.000", 10),
+                self.thought("0.1", "9.000", 10),
+                self.thought("0.1", "0.312", 10),
+                self.thought("0.1", "8.000", 10),
+            ],
+        )
+        found = read_instruments(text, "new")
+        assert found["new"].least_left == 0.312
+        assert found["old"].least_left == 8.0
+
+    def test_the_report_carries_them_so_a_log_is_enough(self, tmp_path):
+        # the point of the whole thing: readable off the run page, with no
+        # artifact to download
+        shards, estimate, text = pooled(tmp_path, [pair(1)])
+        printed = match_estimate.report(shards, estimate, text)
+        assert "The clocks and the search" in printed
+        assert "nodes a second" in printed
+        # and the candidate first, whatever the sides are called, so two runs
+        # read the same way round
+        section = printed[printed.index("The clocks and the search") :]
+        rows = [line for line in section.splitlines() if line.startswith("| ")]
+        assert rows[2].split("|")[1].strip() == CANDIDATE

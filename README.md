@@ -277,6 +277,26 @@ the next, so repeated runs accumulate into one test rather than several.
 Openings follow from a seed rather than a shuffle, so a schedule can be played
 again from what the run recorded.
 
+## The clocks and the search are in the report
+
+A match report carries what each side's clock and search did: moves thought
+about, nodes, time, nodes a second, and the tightest its clock ever got. The
+figures are per engine rather than per colour, since `-repeat` plays every
+opening both ways, and they pool across shards the way the estimate does.
+
+They are there because an elo figure does not say why. A result that is really
+one side being handed more time, or more nodes for the time, shows as a ratio
+away from one here and nowhere else in the report. A registration that says a
+surprising number is re-read against the clocks and the node counts is
+answered from this table.
+
+**It is in the report, and the report goes to the log and to the run's
+summary.** That is the point of putting it there rather than leaving it in the
+games: a later session reading back a run can reach a log, and may not be able
+to reach the artifacts. Book moves are left out of the counts, since the engine
+did not think about them, and still hold their place so the moves after them
+are attributed to the side that made them.
+
 ## The test keeps no state
 
 mache stores nothing between runs. The pairs the earlier batches of a
