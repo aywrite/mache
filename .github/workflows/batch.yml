@@ -155,6 +155,13 @@ on:
 permissions:
   contents: read
 
+# The actions below are pinned at a commit rather than at a tag, which is the
+# one place in this repository that is so. A tag pin names the release before
+# this one, and the release before the first one to carry this file has no
+# action that takes a batch: the ladder would run its first stage and skip the
+# rest, saying nothing. The commit is this release's own, and a commit cannot
+# be moved. They go back to a tag one release later, like the others.
+
 jobs:
   play:
     runs-on: ubuntu-latest
@@ -183,7 +190,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - uses: aywrite/mache/actions/setup@v0.3.0
+      - uses: aywrite/mache/actions/setup@66f05711b1237c09d4e4b8b40e5a9ac804569e44 # this release's own, see the readme
         id: tools
         with:
           book_table: ${{ inputs.book_table }}
@@ -215,7 +222,7 @@ jobs:
               || { echo "::error::${BUILD} left no runnable ${binary}"; exit 1; }
           done
 
-      - uses: aywrite/mache/actions/play-shard@v0.3.0
+      - uses: aywrite/mache/actions/play-shard@66f05711b1237c09d4e4b8b40e5a9ac804569e44 # this release's own, see the readme
         id: play
         with:
           candidate: ${{ inputs.candidate_name }}
@@ -346,7 +353,7 @@ jobs:
           persist-credentials: false
 
       # no harness to build and no book to fetch: this job only reads games
-      - uses: aywrite/mache/actions/setup@v0.3.0
+      - uses: aywrite/mache/actions/setup@66f05711b1237c09d4e4b8b40e5a9ac804569e44 # this release's own, see the readme
         with:
           estimator_only: true
 
@@ -355,7 +362,7 @@ jobs:
           pattern: ${{ env.ARTIFACTS }}-shard-*
           path: shards
 
-      - uses: aywrite/mache/actions/summarise-match@v0.3.0
+      - uses: aywrite/mache/actions/summarise-match@66f05711b1237c09d4e4b8b40e5a9ac804569e44 # this release's own, see the readme
         id: summary
         with:
           games: shards
