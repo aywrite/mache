@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.0] - 2026-09-20
+
+### Features
+
+- *(package)* Reserve the whole sequential test in the book, not one batch
+- *(action)* Hand back what the sequential test decided
+
+### Development
+
+- *(ci)* Move the reusable workflows' self pins to v0.3.0
+- *(ci)* Stop a sequential test as soon as a batch settles it
+- *(ci)* Pin the batch workflow's actions at a commit, and test the pins
+
 ## [0.3.0] - 2026-09-18
 
 ### Development
