@@ -144,20 +144,19 @@ def test_every_action_it_names_is_in_this_repository(name):
         )
 
 
-def test_every_workflow_pins_its_actions_at_one_thing():
-    # a workflow running half its actions from one release and half from
-    # another would be a version nobody chose
-    for name in REUSABLE:
-        seen = {ref for _, ref in pins(name)}
-        assert len(seen) <= 1, f"{name} pins its actions at {sorted(seen)}"
+def test_the_workflows_pin_their_actions_at_one_release():
+    # half the workflows on one release and half on another is a version
+    # nobody chose, and a bump that moved some of them is how that happens
+    seen = {ref for name in REUSABLE for _, ref in pins(name)}
+    assert len(seen) == 1, f"the reusable workflows are pinned at {sorted(seen)}"
 
 
 @pytest.mark.parametrize("name", REUSABLE)
 def test_the_self_pins_cannot_move(name):
     # a branch or a moving name would make the workflow at a tag mean
-    # something different next week. A release tag is the ordinary form; a
-    # commit is the exception batch.yml takes, and the reason is in its own
-    # comment and in the readme
+    # something different next week. A release tag is the ordinary form and a
+    # full commit is the other immutable one, which a release takes when the
+    # lag cannot carry it (the readme says when, and v0.4.0 is why)
     for action, ref in pins(name):
         release = re.fullmatch(r"v\d+\.\d+\.\d+", ref)
         commit = re.fullmatch(r"[0-9a-f]{40}", ref)
@@ -178,16 +177,18 @@ def test_the_self_pins_cannot_move(name):
             ), f"{name} pins {action} at {ref}, which is not a commit here"
 
 
-def test_only_the_batch_workflow_pins_at_a_commit():
-    # the exception earns its place once, for the release that first carries
-    # a file whose actions did not exist in the release before it. Anywhere
-    # else it is a pin nobody will remember to move back to a tag
+def test_the_pins_are_a_release_tag_between_releases():
+    # the commit form is for the release that cannot wait for the lag, and it
+    # is meant to be given back afterwards. This is what makes giving it back
+    # something that has to happen rather than something somebody remembers:
+    # a commit pin left behind fails here the moment the release that wanted
+    # it is out
     for name in REUSABLE:
-        if name == "batch.yml":
-            continue
         for action, ref in pins(name):
             assert re.fullmatch(r"v\d+\.\d+\.\d+", ref), (
-                f"{name} pins {action} at {ref} rather than at a release tag"
+                f"{name} pins {action} at {ref} rather than at a release tag."
+                " A release may pin at a commit while it needs to; the release"
+                " after it moves the pin back"
             )
 
 
