@@ -165,18 +165,21 @@ find action.yml under /home/runner/work/arche/arche/actions/probe-only`: the
 caller's workspace, with and without a checkout alike. So the actions are
 named by ref and there is nothing to fall back on.
 
-Which leaves one exception to the lag, in `batch.yml`. Its actions are pinned
-at a commit rather than at a tag, because the lag cannot carry an action input
-added in the same release: the release before the first one to hold a ladder
-has no action that takes a batch. A tag pin there would have run the first
-stage, skipped the rest and said nothing, since a missing output reads as
-empty rather than failing. The commit is this release's own and a commit
-cannot be moved, so a caller pinning the release still gets exactly what that
-release shipped. It goes back to a tag one release later.
+There is one thing the lag cannot carry, and `v0.4.0` is where it came up: an
+action input added in the same release as the workflow that passes it. The
+release before the first one to hold a ladder had no action that took a batch,
+so a tag pin would have run the first stage, skipped the rest and said
+nothing, a missing output reading as empty rather than failing. That release
+pinned its actions at its own commit instead, which cannot be moved and cannot
+lag, and the release after it moved them back to a tag.
 
-Two tests hold that shape: the pins are a release tag or a full commit of this
-repository and nothing else, and every input the workflows hand an action and
-every output they read off one is declared by the version they pinned.
+So a release may pin at a commit while it needs to, and the release after it
+gives the pin back. Three tests hold the shape: a pin is a release tag or a
+full commit of this repository and nothing else; between releases it is a tag,
+and all of them name the same one; and every input the workflows hand an
+action and every output they read off one is declared by the version they
+pinned. The last is the one that matters, because it is what a tag pin gets
+wrong silently.
 
 ## Not included
 
