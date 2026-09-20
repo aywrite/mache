@@ -150,14 +150,33 @@ that carries it, and in the reusable workflows one release later. If you call
 the actions directly you do not have this problem, and if you call these and
 need a fix sooner, pin to the commit that carries it rather than to the tag.
 
-None of that applies to `batch.yml`, which `strength.yml` reaches by a relative
-path rather than a pin, so you get the one from the release you called. That
-works because a relative reference inside a called workflow is resolved in the
-repository that holds it, at that repository's own commit, and not in yours:
-run 35444376094 of the engine this was written for called a workflow here that
-reached a second one beside it, and the log named it at this repository's sha.
-A pin could not have done the same job, because the release that first carried
-`batch.yml` had no earlier tag holding one.
+None of that applies to `batch.yml` itself, which `strength.yml` reaches by a
+relative path rather than a pin, so you get the one from the release you
+called. That works because a relative reference from a workflow to a workflow
+is resolved in the repository that holds it, at that repository's own commit,
+and not in yours: run 35444376094 of the engine this was written for called a
+workflow here that reached a second one beside it, and the log named it at
+this repository's sha.
+
+**The same syntax does not work for an action**, which is worth saying because
+the two look identical. Run 35489144466 asked, and a workflow here reaching
+`./actions/probe-only` while called from that repository failed with `Can't
+find action.yml under /home/runner/work/arche/arche/actions/probe-only`: the
+caller's workspace, with and without a checkout alike. So the actions are
+named by ref and there is nothing to fall back on.
+
+Which leaves one exception to the lag, in `batch.yml`. Its actions are pinned
+at a commit rather than at a tag, because the lag cannot carry an action input
+added in the same release: the release before the first one to hold a ladder
+has no action that takes a batch. A tag pin there would have run the first
+stage, skipped the rest and said nothing, since a missing output reads as
+empty rather than failing. The commit is this release's own and a commit
+cannot be moved, so a caller pinning the release still gets exactly what that
+release shipped. It goes back to a tag one release later.
+
+Two tests hold that shape: the pins are a release tag or a full commit of this
+repository and nothing else, and every input the workflows hand an action and
+every output they read off one is declared by the version they pinned.
 
 ## Not included
 
