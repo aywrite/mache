@@ -1,18 +1,8 @@
 name: Probe inner
 
-# Throwaway, and deleted with the branch. Two questions, one run.
-#
-# First, what a reusable workflow is told about itself. The whole github
-# context is printed rather than named properties, because the question is
-# which properties are there at all.
-#
-# Second, whether a reusable workflow can load the actions beside it without
-# naming a release: check this repository out at the workflow's own commit and
-# use the local path, which is where a relative action reference looks. That
-# resolution is why the reusable workflows name a release today.
-#
-# The caller is another repository, because that is the case the question is
-# about.
+# Throwaway, and deleted with the branch. Lists what a reusable workflow is
+# told about itself, so the question of whether it can name its own commit is
+# answered by a listing rather than by a guess at a property name.
 
 on:
   workflow_call:
@@ -24,52 +14,15 @@ jobs:
   called_deeper:
     runs-on: ubuntu-latest
     steps:
-      - name: The whole github context, two levels down
-        env:
-          CONTEXT: ${{ toJSON(github) }}
-        run: printf '%s' "$CONTEXT" | jq 'del(.token)'
-
-      - name: Every GITHUB_ variable the runner set
-        run: env | grep '^GITHUB_' | grep -v TOKEN | sort
-
-      # named through jq rather than in an expression, since a property that
-      # is not there is what this is asking about
-      - name: Pick a ref for this workflow's own commit
-        id: pick
+      - name: Every property of the github context, two levels down
         env:
           CONTEXT: ${{ toJSON(github) }}
         run: |
-          ref=$(printf '%s' "$CONTEXT" | jq -r '.job_workflow_sha // empty')
-          echo "job_workflow_sha: ${ref:-<not there>}"
-          fallback=$(printf '%s' "$CONTEXT" | jq -r '.workflow_sha // empty')
-          echo "workflow_sha:     ${fallback:-<not there>}"
-          echo "picked=${ref:-$fallback}" >> "$GITHUB_OUTPUT"
-
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: aywrite/mache
-          ref: ${{ steps.pick.outputs.picked }}
-          path: .mache
-          persist-credentials: false
-
-      - name: What landed
-        run: git -C .mache log -1 --format='%H %d %s'
-
-      - uses: ./.mache/actions/probe-only
-        id: probe
-
-      - name: Was the action read from the commit that was aimed at
-        env:
-          FROM: ${{ steps.probe.outputs.from }}
-          WANTED: ${{ steps.pick.outputs.picked }}
-        run: |
-          echo "read from ${FROM}, aimed at ${WANTED:-<nothing, so the default branch>}"
-          [ -n "$WANTED" ] || {
-            echo "::error::no context property named this workflow's commit"
-            exit 1
-          }
-          [ "$FROM" = "$WANTED" ] || {
-            echo "::error::the action came from ${FROM}"
-            exit 1
-          }
+          echo "--- keys ---"
+          printf '%s' "$CONTEXT" | jq -r 'keys[]'
+          echo "--- anything that looks like a sha or a ref ---"
+          printf '%s' "$CONTEXT" | jq -r \
+            'to_entries[] | select(.key | test("sha|ref|workflow")) | "\(.key) = \(.value)"'
+          echo "--- the runner's own variables ---"
+          env | grep '^GITHUB_' | grep -iv token | sed 's/=.*/=/' | sort
 
