@@ -34,7 +34,12 @@ accepted. Pull requests are reviewed before they merge.
 The version lives in `mache/__init__.py` and nowhere else. Run the Prepare
 release workflow from the actions tab and pick a level of patch, minor or
 major. It bumps the version, prepends the changelog section for it and opens a
-pull request with those two files. Merging that pull request tags `vX.Y.Z` on
+pull request with those two files. That branch is red until one more commit is
+on it: the reusable workflows pin the actions beside them, those pins have to
+name the version being released, and `GITHUB_TOKEN` may not write under
+`.github/workflows/`, so the workflow cannot move them itself.
+`.github/workflows/README.md` says what the pins are.
+Merging that pull request tags `vX.Y.Z` on
 the commit that carries the version and starts the release, which refuses a tag
 that does not match `__version__`, builds the sdist and the wheel, publishes
 them and makes the GitHub release from the tag's message. Closing the pull

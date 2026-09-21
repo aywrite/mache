@@ -126,29 +126,28 @@ did and nothing says so.
 well: `<prefix>-<run>-<attempt>-batch-<n>-shard-<i>`. A run of one batch keeps
 the name it had, without the batch in it.
 
-## Pinning, and the lag in it
+## Pinning
 
 Call these at a tag.
 
-Inside them, the actions they use are pinned at a tag too, and **that tag is
-normally the release before the one you are calling**. A workflow at `v0.3.0`
-runs the actions of `v0.2.0`.
+Inside them, the actions they use are pinned at a tag too, and **it is the
+same one**. A workflow at `v0.5.0` runs the actions of `v0.5.0`.
 
-Moving the pins does not change a release that is already out. A tag is fixed,
-so they move on `main` and reach the release after them. Bumping them to
-`v0.3.0` is what keeps `v0.4.0` one release behind rather than two.
-
-That is not where it started. The release was going to move the pins itself,
-which is tidier and does not work: a release commit is pushed by
+That is not automatic, and it cannot be. A release commit is pushed by
 `GITHUB_TOKEN`, and GitHub refuses to let that token create or update a file
 under `.github/workflows/` at all. There is no permission that grants it; the
-refusal is the point of it. So the pins move in an ordinary pull request, like
-any other dependency bump, whenever the newer actions are wanted.
+refusal is the point of it. So the pins are moved by hand, in a commit that
+sits beside the version bump on the release branch.
 
-What this costs is the lag. A fix to an action is in the actions at the release
-that carries it, and in the reusable workflows one release later. If you call
-the actions directly you do not have this problem, and if you call these and
-need a fix sooner, pin to the commit that carries it rather than to the tag.
+What holds them there is a test rather than a habit. The pins have to name the
+version in `mache/__init__.py`, so a release branch carrying only the bump is
+red until the pin commit is on it.
+
+The pins used to name the release before instead, which cost a lag: a fix to an
+action reached the reusable workflows one release later. `v0.5.0` is why that
+stopped. It went out serving `v0.4.0`'s actions, so a caller who asked for the
+release that put the clocks and the node counts in a match report got a report
+with neither, and nothing said so.
 
 None of that applies to `batch.yml` itself, which `strength.yml` reaches by a
 relative path rather than a pin, so you get the one from the release you
@@ -165,20 +164,18 @@ find action.yml under /home/runner/work/arche/arche/actions/probe-only`: the
 caller's workspace, with and without a checkout alike. So the actions are
 named by ref and there is nothing to fall back on.
 
-There is one thing the lag cannot carry, and `v0.4.0` is where it came up: an
-action input added in the same release as the workflow that passes it. The
-release before the first one to hold a ladder had no action that took a batch,
-so a tag pin would have run the first stage, skipped the rest and said
+The lag had one case it could not carry at all, and `v0.4.0` is where it came
+up: an action input added in the same release as the workflow that passes it.
+The release before the first one to hold a ladder had no action that took a
+batch, so a tag pin would have run the first stage, skipped the rest and said
 nothing, a missing output reading as empty rather than failing. That release
-pinned its actions at its own commit instead, which cannot be moved and cannot
-lag, and the release after it moved them back to a tag.
+pinned its actions at its own commit to get round it. With the pins naming
+this release there is nothing left for a commit to reach.
 
-So a release may pin at a commit while it needs to, and the release after it
-gives the pin back. Three tests hold the shape: a pin is a release tag or a
-full commit of this repository and nothing else; between releases it is a tag,
-and all of them name the same one; and every input the workflows hand an
-action and every output they read off one is declared by the version they
-pinned. The last is the one that matters, because it is what a tag pin gets
+Four tests hold the shape: a pin is a release tag; all of them name the same
+one; that one is the version this tree is; and every input the workflows hand
+an action and every output they read off one is declared by the version they
+pinned. The last is the one that matters, because it is what a wrong pin gets
 wrong silently.
 
 ## Not included
