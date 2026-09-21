@@ -22,15 +22,18 @@ the same syntax:
   actions/probe-only", with and without a checkout alike. So the actions have
   to be named by ref, and there is no relative form to fall back on.
 
-The ref costs a pin that is moved by hand: the release cannot move it, because
-a release commit is pushed by GITHUB_TOKEN and GitHub refuses that token any
-write under .github/workflows/. So the pins name the release before, and the
-readme beside the workflows says what the lag is.
+The ref is moved by hand, because the release cannot move it: a release commit
+is pushed by GITHUB_TOKEN and GitHub refuses that token any write under
+.github/workflows/. What it can be is checked. The pins name the version in
+mache/__init__.py, so the release branch is not green until the commit moving
+them is on it, and a release cannot go out naming a version it does not serve.
 
-What the lag cannot do is carry an action input added in the same release, and
-that is what the coverage test below exists for. Shape alone did not catch a
-ladder pinned at a summarise-match with no verdict to read, which would have
-run one batch of four and said nothing.
+That rule replaced a lag. The pins used to name the release before, and what a
+lag cannot carry is an action input added in the same release as the workflow
+that passes it. Shape alone did not catch a ladder pinned at a summarise-match
+with no verdict to read, which would have run one batch of four and said
+nothing. The coverage tests below are from that, and they stay: they are what
+reads the pinned action rather than this one.
 
 The files are read as text as well as parsed, because what is being checked is
 partly how they are written.
@@ -44,6 +47,9 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 WORKFLOWS = ROOT / ".github" / "workflows"
+
+# the one assignment the whole package takes its version from
+VERSION = re.compile(r'^__version__ = "(\d+\.\d+\.\d+)"$', re.MULTILINE)
 REUSABLE = ["strength.yml", "calibrate.yml", "batch.yml"]
 
 # the stages strength.yml has written out, which is the cap it accepts
@@ -110,10 +116,41 @@ def steps_using_actions(body):
     return found
 
 
+def version_here():
+    """The version this tree is, which is the release its pins name."""
+    text = (ROOT / "mache" / "__init__.py").read_text(encoding="utf-8")
+    found = VERSION.search(text)
+    assert found, "mache/__init__.py has no version assignment"
+    return found.group(1)
+
+
+def tagged(ref):
+    return (
+        subprocess.run(
+            ["git", "rev-parse", "--verify", f"{ref}^{{commit}}"],
+            cwd=ROOT,
+            capture_output=True,
+            check=False,
+        ).returncode
+        == 0
+    )
+
+
 def surface_at(action, ref):
     """What `actions/<action>` declared at `ref`, as (inputs, outputs). Read
     out of git rather than off disk, because the pin is the whole point: what
-    the workflow will run is that ref's action, not this checkout's."""
+    the workflow will run is that ref's action, not this checkout's.
+
+    Off disk for one case: the pins name this tree's version, and on a release
+    branch that tag is not cut until the branch merges. There the tree is what
+    the tag will be, so the tree is the honest answer and the alternative is
+    having no answer at all."""
+    if ref == f"v{version_here()}" and not tagged(ref):
+        return read_surface(
+            (ROOT / "actions" / action / "action.yml")
+            .read_text(encoding="utf-8")
+            .splitlines()
+        )
     shown = subprocess.run(
         ["git", "show", f"{ref}:actions/{action}/action.yml"],
         cwd=ROOT,
@@ -126,7 +163,10 @@ def surface_at(action, ref):
             f"{action}@{ref} is not readable from this checkout, so the pin"
             f" cannot be checked: {shown.stderr.strip()}"
         )
-    lines = shown.stdout.splitlines()
+    return read_surface(shown.stdout.splitlines())
+
+
+def read_surface(lines):
     surface = {}
     for number, line in enumerate(lines):
         if line.rstrip() in ("inputs:", "outputs:"):
@@ -177,18 +217,35 @@ def test_the_self_pins_cannot_move(name):
             ), f"{name} pins {action} at {ref}, which is not a commit here"
 
 
-def test_the_pins_are_a_release_tag_between_releases():
-    # the commit form is for the release that cannot wait for the lag, and it
-    # is meant to be given back afterwards. This is what makes giving it back
-    # something that has to happen rather than something somebody remembers:
-    # a commit pin left behind fails here the moment the release that wanted
-    # it is out
+def test_the_pins_are_a_release_tag():
+    # the commit form is what a release took while the pins lagged and an
+    # input it needed was not in the release before. The pins name this
+    # release now, so there is nothing left for a commit to reach
     for name in REUSABLE:
         for action, ref in pins(name):
             assert re.fullmatch(r"v\d+\.\d+\.\d+", ref), (
-                f"{name} pins {action} at {ref} rather than at a release tag."
-                " A release may pin at a commit while it needs to; the release"
-                " after it moves the pin back"
+                f"{name} pins {action} at {ref} rather than at a release tag"
+            )
+
+
+def test_the_pins_name_the_version_this_tree_is():
+    """The pins and mache/__init__.py say the same release.
+
+    A release cannot move its own pins, since GITHUB_TOKEN may not write under
+    .github/workflows/. This is the other way to the same place: the version
+    bump alone leaves the tree failing here, so the commit that moves the pins
+    has to be on the release branch before it is green.
+
+    What it buys is that a workflow at a tag serves that tag's actions. v0.5.0
+    went out serving v0.4.0's, so its own report had none of the clocks and
+    node counts the release was for, and nothing said so.
+    """
+    version = version_here()
+    for name in REUSABLE:
+        for action, ref in pins(name):
+            assert ref == f"v{version}", (
+                f"{name} pins {action} at {ref}, and this tree is {version}."
+                " The pins move with the version bump, on the release branch"
             )
 
 
