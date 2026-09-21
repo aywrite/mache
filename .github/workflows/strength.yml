@@ -226,6 +226,16 @@ jobs:
   #
   # A run that is not a sequential test has no verdict to be inconclusive, so
   # it stops after the first stage whatever `batches` says.
+  #
+  # Each guard says two more things than the verdict. `batches` is the cap the
+  # caller asked for: the book is reserved for that many, so a test still
+  # running at its last batch would otherwise start one the reservation has no
+  # room for, and book_slice refuses a batch that is not one of them in every
+  # shard. `!cancelled()` is because a shard that fell over concludes the whole
+  # batch as a failure even though the summary it fed succeeded, and a stage
+  # waiting on that batch would be skipped before its verdict was read. A shard
+  # that fell over is a smaller sample; what stops the ladder is an empty
+  # verdict.
   batch1:
     needs: resolve
     if: needs.resolve.outputs.baseline_sha != ''
@@ -266,7 +276,10 @@ jobs:
 
   batch2:
     needs: [resolve, batch1]
-    if: needs.batch1.outputs.verdict == 'inconclusive'
+    if: >-
+      !cancelled()
+      && needs.batch1.outputs.verdict == 'inconclusive'
+      && inputs.batches > 1
     # relative, so the batch definition is this file's own rather than
     # a tag of it. A caller pinning a release of this workflow gets the
     # batch.yml of that same release, which a pin could not have given on
@@ -304,7 +317,10 @@ jobs:
 
   batch3:
     needs: [resolve, batch2]
-    if: needs.batch2.outputs.verdict == 'inconclusive'
+    if: >-
+      !cancelled()
+      && needs.batch2.outputs.verdict == 'inconclusive'
+      && inputs.batches > 2
     # relative, so the batch definition is this file's own rather than
     # a tag of it. A caller pinning a release of this workflow gets the
     # batch.yml of that same release, which a pin could not have given on
@@ -342,7 +358,10 @@ jobs:
 
   batch4:
     needs: [resolve, batch3]
-    if: needs.batch3.outputs.verdict == 'inconclusive'
+    if: >-
+      !cancelled()
+      && needs.batch3.outputs.verdict == 'inconclusive'
+      && inputs.batches > 3
     # relative, so the batch definition is this file's own rather than
     # a tag of it. A caller pinning a release of this workflow gets the
     # batch.yml of that same release, which a pin could not have given on

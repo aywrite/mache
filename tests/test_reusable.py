@@ -253,6 +253,35 @@ def test_a_stage_plays_only_where_the_one_before_settled_nothing():
         assert carried in body, f"batch{stage} does not carry batch{stage - 1}'s pairs"
 
 
+def test_a_stage_plays_only_where_the_caller_asked_for_it():
+    # the book is reserved for `batches` of them, and book_slice refuses a
+    # batch that is not one of those. Without this a test still running at its
+    # last batch starts one more, and every shard of it exits with "batch 2 is
+    # not one of 2" rather than the run simply being over
+    body = text_of("strength.yml")
+    for stage in range(2, LADDER + 1):
+        guard = f"inputs.batches > {stage - 1}"
+        assert guard in body, (
+            f"batch{stage} plays whenever batch{stage - 1} settled nothing, "
+            "whatever the caller asked for"
+        )
+
+
+def test_a_shard_that_fell_over_does_not_stop_the_ladder():
+    # play is fail-fast: false and summarise runs anyway, so a batch that lost
+    # a shard still reports. The batch itself still concludes a failure, and a
+    # stage that did not say so would be skipped before its verdict was read:
+    # a test with batches to spare would stop after the one that lost a shard
+    body = text_of("strength.yml")
+    for stage in range(2, LADDER + 1):
+        opening = f"\n  batch{stage}:\n"
+        guard = body[body.index(opening) :].split("\n    uses:")[0]
+        assert "!cancelled()" in guard, (
+            f"batch{stage} waits on batch{stage - 1} succeeding rather than on "
+            "what it came to"
+        )
+
+
 def test_a_batch_names_itself_in_the_artifacts_it_writes_and_reads():
     # every batch of one test shares a run id and an attempt. Without the
     # batch in the name, a later batch would collide on upload and its summary
