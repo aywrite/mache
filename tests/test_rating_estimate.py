@@ -9,7 +9,9 @@ checked against numbers computed by hand.
 """
 
 import json
+import os
 import subprocess
+from pathlib import Path
 
 import pytest
 from conftest import command
@@ -19,6 +21,7 @@ from mache import match_estimate, rating_estimate
 
 # the command line a caller runs, which is what the action's PYTHONPATH makes work
 COMMAND = command("rating_estimate")
+ROOT = Path(__file__).resolve().parent.parent
 
 
 def game(white, black, result):
@@ -100,6 +103,14 @@ class TestFit:
     def test_losing_every_game_bounds_from_below(self):
         estimate, _ = rating_estimate.fit([("a", 1600, 0, 0, 10), ("b", 1500, 0, 0, 4)])
         assert str(estimate) == "below 1500 on the ccrl blitz scale (14 games)"
+
+    def test_the_scale_given_is_the_one_printed(self):
+        # a ladder read off another list puts the figure on that list's scale,
+        # bound or not
+        measured, _ = rating_estimate.fit([("a", 1600, 7, 1, 2)], "ccrl 40/15")
+        swept, _ = rating_estimate.fit([("a", 1600, 10, 0, 0)], "ccrl 40/15")
+        assert str(measured).endswith(" on the ccrl 40/15 scale (10 games)")
+        assert str(swept) == "above 1600 on the ccrl 40/15 scale (10 games)"
 
     def test_all_draws_still_carry_a_margin(self):
         # every game alike leaves no observed spread, the fallback to the
@@ -213,6 +224,17 @@ class TestCommandLine:
         assert result.stdout.count("\n") == 1
         assert "on the ccrl blitz scale (4 games)" in result.stdout
 
+    def test_the_scale_is_the_one_asked_for(self, tmp_path):
+        result = self.run(tmp_path, self.GAMES, "--line", "--scale", "ccrl 40/15")
+        assert result.returncode == 0
+        assert "on the ccrl 40/15 scale (4 games)" in result.stdout
+        assert "blitz" not in result.stdout
+
+    def test_an_empty_scale_is_refused(self, tmp_path):
+        result = self.run(tmp_path, self.GAMES, "--line", "--scale", " ")
+        assert result.returncode != 0
+        assert "the scale is empty" in result.stderr
+
     def test_the_table_names_the_version_that_priced_the_games(self, tmp_path):
         result = self.run(tmp_path, self.GAMES)
         assert result.stdout.rstrip().splitlines()[-1] == (
@@ -265,6 +287,7 @@ class TestJson:
         ]
         assert written["games"] == 4
         assert written["bounded"] == ""
+        assert written["scale"] == "ccrl blitz"
         assert written["note"] == ""
         assert written["remarks"] == []
         assert (
@@ -282,6 +305,14 @@ class TestJson:
         assert written["margin"] is None
         assert written["bounded"] == "above 1690"
 
+    def test_the_scale_asked_for_is_in_it(self, tmp_path):
+        result = self.run(
+            tmp_path, TestCommandLine.GAMES, "--json", "--scale", "ccrl 40/15"
+        )
+        written = json.loads(result.stdout)
+        assert written["scale"] == "ccrl 40/15"
+        assert written["line"].endswith(" on the ccrl 40/15 scale (4 games)")
+
     def test_what_went_to_stderr_is_in_it_too(self, tmp_path):
         text = TestCommandLine.GAMES + game("arche", "stash-v11", "*")
         result = self.run(tmp_path, text, "--json")
@@ -293,3 +324,46 @@ class TestJson:
         result = self.run(tmp_path, TestCommandLine.GAMES, "--json", "--line")
         assert result.returncode != 0
         assert "not allowed with argument" in result.stderr
+
+
+class TestSummariseGauntlet:
+    """The action's script, which is what puts the line in a release note.
+
+    The estimator is not stubbed here, because what is under test is that the
+    scale the caller names reaches the line the action hands back."""
+
+    SCRIPT = ROOT / "actions" / "summarise-gauntlet" / "summarise.sh"
+
+    def run(self, tmp_path, **extra):
+        rung = tmp_path / "rungs" / "stash-v11"
+        rung.mkdir(parents=True)
+        (rung / "games.pgn").write_text(TestCommandLine.GAMES)
+        outputs = tmp_path / "outputs"
+        result = subprocess.run(
+            [str(self.SCRIPT), "rungs", str(outputs)],
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+            check=False,
+            env={
+                **os.environ,
+                "ENGINE_NAME": "arche",
+                "CANDIDATE_SHA": "a" * 40,
+                "LADDER_SPEC": "stash-v11:1690",
+                "RUNGS": "1",
+                "TIME_CONTROL": "40/150",
+                "RATING_LIST": "ccrl 40/15",
+                "RATING_TIME_CONTROL": "",
+                "PROVENANCE": "",
+                "GITHUB_STEP_SUMMARY": str(tmp_path / "step_summary"),
+                "GITHUB_RUN_ATTEMPT": "1",
+                **extra,
+            },
+        )
+        assert result.returncode == 0, result.stderr
+        return outputs.read_text()
+
+    def test_the_line_is_on_the_scale_asked_for(self, tmp_path):
+        written = self.run(tmp_path, SCALE="ccrl 40/15")
+        assert written.startswith("line=Estimated rating | ")
+        assert written.rstrip().endswith(" on the ccrl 40/15 scale (4 games)")
