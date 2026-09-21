@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.0] - 2026-09-21
+
+### Features
+
+- *(package)* Put the clocks and the node counts in the report
+
+### Development
+
+- *(ci)* Move the self pins to v0.4.0 and give back the commit pin
+
 ## [0.4.0] - 2026-09-20
 
 ### Features
