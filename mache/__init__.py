@@ -9,7 +9,7 @@ expressions a fastchess pgn is split into games with, and the estimate reads
 the terminations count as well as the fit.
 """
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 # The version of the --json shape, and the one thing every --json object says
 # about itself. It is 1 because the shape is released: a tagged version is what
