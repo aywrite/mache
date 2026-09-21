@@ -129,14 +129,14 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - uses: aywrite/mache/actions/resolve-ref@v0.4.0
+      - uses: aywrite/mache/actions/resolve-ref@v0.5.0
         id: candidate
         with:
           ref: ${{ inputs.candidate }}
           label: candidate
           when_empty: head
 
-      - uses: aywrite/mache/actions/plan-ladder@v0.4.0
+      - uses: aywrite/mache/actions/plan-ladder@v0.5.0
         id: plan
         with:
           games: ${{ inputs.games }}
@@ -175,7 +175,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - uses: aywrite/mache/actions/setup@v0.4.0
+      - uses: aywrite/mache/actions/setup@v0.5.0
         id: tools
         with:
           book_table: ${{ inputs.book_table }}
@@ -210,7 +210,7 @@ jobs:
             || { echo "::error::cannot build ${OPPONENT}"; exit 1; }
           ls -l "tools/${OPPONENT}"
 
-      - uses: aywrite/mache/actions/play-shard@v0.4.0
+      - uses: aywrite/mache/actions/play-shard@v0.5.0
         id: play
         with:
           candidate: ${{ inputs.engine_name }}
@@ -318,7 +318,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: aywrite/mache/actions/setup@v0.4.0
+      - uses: aywrite/mache/actions/setup@v0.5.0
         with:
           estimator_only: true
 
@@ -327,7 +327,7 @@ jobs:
           pattern: ${{ inputs.artifact_prefix }}-${{ github.run_id }}-${{ github.run_attempt }}-*
           path: rungs
 
-      - uses: aywrite/mache/actions/summarise-gauntlet@v0.4.0
+      - uses: aywrite/mache/actions/summarise-gauntlet@v0.5.0
         id: estimate
         with:
           games: rungs

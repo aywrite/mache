@@ -183,7 +183,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - uses: aywrite/mache/actions/setup@v0.4.0
+      - uses: aywrite/mache/actions/setup@v0.5.0
         id: tools
         with:
           book_table: ${{ inputs.book_table }}
@@ -215,7 +215,7 @@ jobs:
               || { echo "::error::${BUILD} left no runnable ${binary}"; exit 1; }
           done
 
-      - uses: aywrite/mache/actions/play-shard@v0.4.0
+      - uses: aywrite/mache/actions/play-shard@v0.5.0
         id: play
         with:
           candidate: ${{ inputs.candidate_name }}
@@ -346,7 +346,7 @@ jobs:
           persist-credentials: false
 
       # no harness to build and no book to fetch: this job only reads games
-      - uses: aywrite/mache/actions/setup@v0.4.0
+      - uses: aywrite/mache/actions/setup@v0.5.0
         with:
           estimator_only: true
 
@@ -355,7 +355,7 @@ jobs:
           pattern: ${{ env.ARTIFACTS }}-shard-*
           path: shards
 
-      - uses: aywrite/mache/actions/summarise-match@v0.4.0
+      - uses: aywrite/mache/actions/summarise-match@v0.5.0
         id: summary
         with:
           games: shards
