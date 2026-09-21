@@ -1,0 +1,19 @@
+name: Probe only
+description: >
+  Says which commit of this repository its own directory sits in, so a
+  checkout aimed at a ref can be proved to have landed there. Throwaway.
+
+outputs:
+  from:
+    description: The commit the action was read from.
+    value: ${{ steps.say.outputs.from }}
+
+runs:
+  using: composite
+  steps:
+    - id: say
+      shell: bash
+      run: |
+        from=$(git -C "$GITHUB_ACTION_PATH" rev-parse HEAD)
+        echo "from=${from}" >> "$GITHUB_OUTPUT"
+        echo "::notice::probe-only was read from ${from}"
