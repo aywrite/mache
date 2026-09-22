@@ -125,6 +125,11 @@ SPENT = re.compile(r"^\S+ (\d+(?:\.\d+)?)s")
 LEFT = re.compile(r"\btl=(\d+(?:\.\d+)?)s")
 VISITED = re.compile(r"\bn=(\d+)")
 
+# How far apart the node counts may be for the rate to read as a speed. Two
+# sides that prune differently do not search the same tree, and a node is not
+# the same unit on each, so past this the rate compares trees.
+LIKE_FOR_LIKE = (0.9, 1.1)
+
 
 class Instruments:
     """What one side's clock and search did, added up over its moves.
@@ -183,8 +188,12 @@ def read_instruments(text: str, candidate: str) -> dict[str, Instruments]:
         white, black = tags.get("White"), tags.get("Black")
         if not (white and black) or candidate not in (white, black):
             continue
-        # the moves, which start after the last tag
-        moves = record[record.rfind("]") + 1 :]
+        # The moves, which start after the blank line that ends the tags.
+        # The last `]` is simpler and is what this read before, but a comment
+        # holding one cuts the game short there and hands every move after it
+        # to the other side, since the side is the position in the order.
+        split = re.split(r"\n[ \t]*\n", record, maxsplit=1)
+        moves = split[1] if len(split) == 2 else ""
         for number, comment in enumerate(COMMENT.findall(moves)):
             side = white if number % 2 == 0 else black
             found.setdefault(side, Instruments()).add(comment)
@@ -627,15 +636,21 @@ def instruments(pooled: dict[str, Instruments], candidate: str) -> list[str]:
     remark = ""
     if len(sides) == 2:
         first, second = (pooled[side] for side in sides)
-        if second.seconds and second.nodes:
+        if second.seconds and second.nodes and second.nps:
+            nodes = first.nodes / second.nodes
             remark = (
                 f"\n{sides[0]} had {first.seconds / second.seconds:.3f} times"
-                f" the time and {first.nodes / second.nodes:.3f} times the"
+                f" the time and {nodes:.3f} times the"
                 f" nodes of {sides[1]}, at"
                 f" {first.nps / second.nps:.3f} times the rate."
-                if second.nps
-                else ""
             )
+            if not LIKE_FOR_LIKE[0] <= nodes <= LIKE_FOR_LIKE[1]:
+                remark += (
+                    " The two sides searched very different trees, so the"
+                    " rate is not a speed comparison. A side that prunes more"
+                    " visits fewer nodes and dearer ones, and posts a lower"
+                    " rate for it."
+                )
     return [
         "The clocks and the search, over the moves the engines thought about:",
         "",
