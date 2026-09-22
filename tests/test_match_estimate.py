@@ -856,6 +856,54 @@ class TestInstruments:
         assert found["new"].nodes == 7000
         assert "old" not in found or found["old"].moves == 0
 
+    def test_a_bracket_in_a_comment_does_not_move_a_side_s_nodes(self):
+        """The side is the move's place in the order, so anything that drops a
+        move hands every move after it to the other engine.
+
+        The movetext used to start after the last `]`, which is the last tag
+        until a comment holds one. fastchess writes none today, so this is
+        about the parse not resting on that."""
+        from mache.match_estimate import read_instruments
+
+        bracketed = self.thought("0.1", "2.0", 1).replace('pv="e1g1"', 'pv="e1g1" [1]')
+        text = self.played(
+            "new",
+            "old",
+            [
+                bracketed,
+                self.thought("0.1", "2.0", 2),
+                self.thought("0.1", "2.0", 4),
+                self.thought("0.1", "2.0", 8),
+            ],
+        )
+        found = read_instruments(text, "new")
+        # white played the first and the third, black the second and fourth.
+        # Reading from the last `]` loses the first move and turns the rest
+        # around, which gives new 10 and old 4
+        assert found["new"].nodes == 1 + 4
+        assert found["old"].nodes == 2 + 8
+
+    def test_the_rate_is_not_offered_as_a_speed_when_the_trees_differ(self):
+        """Nodes a second compares two engines' speed only where a node means
+        the same thing on both sides. A side that prunes harder visits fewer
+        nodes and dearer ones, so its rate falls while it reaches depth
+        sooner, and the figure invites the opposite reading."""
+        from mache.match_estimate import Instruments, instruments
+
+        def side(nodes):
+            found = Instruments()
+            found.moves, found.nodes, found.seconds = 10, nodes, 1.0
+            return found
+
+        apart = "\n".join(instruments({"new": side(580), "old": side(1000)}, "new"))
+        assert "0.580 times the rate" in apart
+        assert "not a speed comparison" in apart
+
+        # the ordinary case, one engine against a near neighbour of itself
+        alike = "\n".join(instruments({"new": side(1000), "old": side(1010)}, "new"))
+        assert "times the rate" in alike
+        assert "not a speed comparison" not in alike
+
     def test_the_least_time_left_is_the_tightest_the_clock_got(self):
         from mache.match_estimate import read_instruments
 
