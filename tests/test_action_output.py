@@ -159,7 +159,7 @@ def games(tmp_path):
     return tmp_path, stub
 
 
-def summarise(root, stub, outputs, sprt="false"):
+def summarise(root, stub, outputs, sprt="false", model=None):
     return subprocess.run(
         [str(SUMMARISE), "shards", str(outputs)],
         cwd=root,
@@ -179,6 +179,7 @@ def summarise(root, stub, outputs, sprt="false"):
             "ELO0": "0",
             "ELO1": "5",
             "PRIOR_PAIRS": "",
+            **({} if model is None else {"SPRT_MODEL": model}),
             "PROVENANCE": "",
             "GITHUB_STEP_SUMMARY": str(root / "step_summary"),
             "GITHUB_RUN_ATTEMPT": "1",
@@ -261,6 +262,32 @@ class TestSummarisingAMatch:
         """,
         )
         assert summarise(root, stub, root / "outputs").returncode != 0
+
+    @pytest.mark.parametrize(
+        "model,expected", [(None, "logistic"), ("normalized", "normalized")]
+    )
+    def test_the_model_reaches_the_estimate(self, games, model, expected):
+        # an unset model is the logistic one a caller had before the choice
+        root, stub = games
+        executable(
+            stub / "python3",
+            f"""
+            if [ "$1" = "-m" ] && [ "$2" = "mache.match_estimate" ]; then
+                echo "$@" >> {root / "asked"}
+                for argument in "$@"; do
+                    [ "$argument" = "--json" ] && echo '{{"sprt": null}}' && exit 0
+                done
+                echo "+3 ±2 Elo (200 games)"
+                exit 0
+            fi
+            exec /usr/bin/python3 "$@"
+        """,
+        )
+        outputs = root / "outputs"
+        result = summarise(root, stub, outputs, sprt="true", model=model)
+        assert result.returncode == 0, result.stderr
+        for asked in (root / "asked").read_text().splitlines():
+            assert f"--model {expected}" in asked, asked
 
     def test_no_shard_uploaded_any_games_is_an_error(self, games):
         root, stub = games

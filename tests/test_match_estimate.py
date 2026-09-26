@@ -483,6 +483,41 @@ class TestCommandLine:
             assert result.returncode != 0
             assert "is an elo difference" in result.stderr
 
+    def test_a_normalized_hypothesis_past_its_cap_is_refused(self, tmp_path):
+        cap = match_estimate.MAX_NORMALIZED
+        result = self.run(
+            tmp_path,
+            [drawn(1)],
+            "--elo0",
+            "0",
+            "--elo1",
+            str(cap + 1),
+            "--model",
+            "normalized",
+        )
+        assert result.returncode != 0
+        assert f"between -{cap} and {cap}" in result.stderr
+
+    def test_a_model_with_no_test_to_apply_it_to_is_refused(self, tmp_path):
+        result = self.run(tmp_path, [drawn(1)], "--model", "normalized")
+        assert result.returncode != 0
+        assert "wants --elo0" in result.stderr
+
+    def test_a_normalized_test_runs_from_the_command_line(self, tmp_path):
+        result = self.run(
+            tmp_path,
+            [drawn(1) + pair(2)],
+            "--elo0",
+            "0",
+            "--elo1",
+            "5",
+            "--model",
+            "normalized",
+            "--line",
+        )
+        assert result.returncode == 0, result.stderr
+        assert ", SPRT [0, 5] nElo inconclusive, LLR " in result.stdout
+
     def test_pairs_carried_in_that_are_not_five_counts_are_refused(self, tmp_path):
         # the counts are one per pair score, so a ratio typed into the box a
         # ratio used to go in is caught rather than read as a count
@@ -746,6 +781,175 @@ class TestNormalized:
         assert estimate.nelo_margin is None
 
 
+class TestNormalizedSprt:
+    """The sequential test with its hypotheses in normalized elo.
+
+    Most of what is pinned here is what has to hold whoever else prints a
+    number: the fit meets its condition, nothing on the condition fits the
+    pairs better, the ratio has the symmetries it should, it reduces to the
+    logistic fit where the two models ask the same question, and it tracks
+    the normal approximation where that is good. Agreement with fastchess is
+    the last test rather than the first, since the fit here was written to be
+    checked on its own and fastchess solves it another way."""
+
+    @staticmethod
+    def observed(counts):
+        counted = [count or match_estimate.REGULARISED for count in counts]
+        return [count / sum(counted) for count in counted]
+
+    @staticmethod
+    def moments(p):
+        mean = sum(a * q for a, q in zip(match_estimate.PAIR, p))
+        spread = math.sqrt(
+            sum(q * (a - mean) ** 2 for a, q in zip(match_estimate.PAIR, p))
+        )
+        return mean, spread
+
+    @staticmethod
+    def likelihood(observed, p):
+        return sum(o * math.log(q) for o, q in zip(observed, p))
+
+    @pytest.mark.parametrize(
+        "counts", [MATCH, [2, 9, 36, 19, 9], [0, 0, 50, 0, 3], [40, 0, 0, 0, 1]]
+    )
+    @pytest.mark.parametrize("nelo", [-50, -5, 0, 2, 10, 50])
+    def test_the_fit_meets_the_condition_it_was_asked_for(self, counts, nelo):
+        t = match_estimate.normalized_t(nelo)
+        _, fitted = match_estimate.likeliest_normalized(self.observed(counts), t)
+        mean, spread = self.moments(fitted)
+        assert math.isclose(sum(fitted), 1, abs_tol=1e-12)
+        assert math.isclose(mean - 0.5, t * spread, abs_tol=1e-10)
+
+    @pytest.mark.parametrize("counts", [MATCH, [5, 1, 60, 2, 9], [0, 3, 10, 30, 0]])
+    @pytest.mark.parametrize("nelo", [-20, 0, 5, 40])
+    def test_nothing_on_the_condition_fits_the_pairs_better(self, counts, nelo):
+        # Distributions drawn at random and each tilted, `q_i e^(k a_i)`,
+        # until it meets the condition, which puts every one of them on it.
+        # None may be likelier than the fit. The tilt moves the mean far more
+        # than the spread, so a bisection on k finds the one that fits.
+        import random
+
+        observed = self.observed(counts)
+        t = match_estimate.normalized_t(nelo)
+        best, _ = match_estimate.likeliest_normalized(observed, t)
+        draw = random.Random(7)
+
+        def tilted(q, k):
+            w = [x * math.exp(k * a) for x, a in zip(q, match_estimate.PAIR)]
+            return [x / sum(w) for x in w]
+
+        def gap(q, k):
+            mean, spread = self.moments(tilted(q, k))
+            return mean - 0.5 - t * spread
+
+        checked = 0
+        for _ in range(300):
+            q = [draw.expovariate(1) for _ in range(5)]
+            low, high = -60.0, 60.0
+            if not gap(q, low) < 0 < gap(q, high):
+                continue
+            for _ in range(200):
+                middle = (low + high) / 2
+                low, high = (middle, high) if gap(q, middle) < 0 else (low, middle)
+            assert self.likelihood(observed, tilted(q, low)) <= best + 1e-9
+            checked += 1
+        assert checked > 200
+
+    def test_at_nought_it_is_the_logistic_fit_at_nought(self):
+        # normalized elo of nought and logistic elo of nought both say the
+        # mean is a half and nothing else, so the two fits are one fit
+        observed = self.observed(MATCH)
+        value, _ = match_estimate.likeliest_normalized(observed, 0.0)
+        logistic = match_estimate.likeliest(observed, 0.5)
+        assert math.isclose(value, self.likelihood(observed, logistic), abs_tol=1e-12)
+
+    def test_the_ratio_flips_when_the_match_and_the_question_both_do(self):
+        forward = match_estimate.log_likelihood_ratio(MATCH, -2, 7, "normalized")
+        backward = match_estimate.log_likelihood_ratio(MATCH[::-1], -7, 2, "normalized")
+        assert math.isclose(forward, -backward, rel_tol=1e-9)
+
+    def test_it_tracks_the_normal_approximation_on_a_long_match(self):
+        # With many pairs and small hypotheses the ratio is close to
+        # `n/2 ((that - t0)^2 - (that - t1)^2)`, t-hat being the pairs' own
+        # distance from a half in their own spread
+        counts = [900, 3600, 16000, 3900, 1000]
+        observed = [count / sum(counts) for count in counts]
+        mean, spread = self.moments(observed)
+        seen = (mean - 0.5) / spread
+        t0, t1 = match_estimate.normalized_t(0), match_estimate.normalized_t(5)
+        approximate = sum(counts) / 2 * ((seen - t0) ** 2 - (seen - t1) ** 2)
+        exact = match_estimate.log_likelihood_ratio(counts, 0, 5, "normalized")
+        assert math.isclose(exact, approximate, rel_tol=0.02)
+
+    def test_the_same_separation_is_the_same_evidence_on_any_book(self):
+        # Two matches that separate the sides equally clearly, one decisive
+        # and one drawish: the drawish one is the decisive one with every
+        # pair pulled halfway to a draw. Under normalized hypotheses they are
+        # the same evidence, to within the nudge an empty score is given,
+        # which lands on different scores in the two. Under logistic ones the
+        # same bounds weigh them very differently
+        decisive = [300, 0, 0, 0, 700]
+        drawish = [0, 300, 0, 700, 0]
+        normalized = [
+            match_estimate.log_likelihood_ratio(counts, 0, 5, "normalized")
+            for counts in (decisive, drawish)
+        ]
+        assert math.isclose(normalized[0], normalized[1], rel_tol=1e-4)
+        logistic = [
+            match_estimate.log_likelihood_ratio(counts, 0, 10)
+            for counts in (decisive, drawish)
+        ]
+        assert logistic[1] > 1.5 * logistic[0]
+
+    @pytest.mark.parametrize(
+        "counts,elo0,elo1,printed",
+        [
+            (MATCH, 0, 5, 0.194344971),
+            ([223, 9863, 21279, 10037, 246], 0, 2, 1.096834254),
+            ([871, 26175, 55983, 26678, 821], 0, 2, 0.804451473),
+            ([2, 9, 36, 19, 9], -1, 3, 0.391779344),
+            ([100, 400, 1000, 450, 120], 0, 5, 1.574910820),
+        ],
+    )
+    def test_it_agrees_with_fastchess(self, counts, elo0, elo1, printed):
+        # fastchess's own normalized ratio at the pinned tag, compiled and
+        # given each count as its `Stats`. It solves the fit by the fixed
+        # point iteration of Van den Bergh's note, capped at ten steps, so
+        # this is agreement between two methods rather than a copy of one
+        llr = match_estimate.log_likelihood_ratio(counts, elo0, elo1, "normalized")
+        assert math.isclose(llr, printed, abs_tol=1e-6)
+
+    def test_the_report_names_the_model(self, tmp_path):
+        shards, estimate, text = pooled(tmp_path, [batch([2, 9, 36, 19, 9])])
+        pairs = [score for one in shards for score in one.pairs]
+        sprt = match_estimate.Sprt(
+            pairs, 0, 5, [20, 90, 360, 190, 90], model="normalized"
+        )
+        assert sprt.verdict == "passed"
+        printed = match_estimate.report(shards, estimate, text, sprt)
+        assert str(sprt).startswith("SPRT [0, 5] nElo passed, LLR ")
+        assert "SPRT [0, 5] nElo passed." in printed
+        assert "a difference of about 5 normalized elo over one of about 0" in printed
+        trailer = match_estimate.trailer(estimate, "10+0.1", BASE, sprt)
+        assert "(sprt [0, 5] nElo passed, " in trailer
+
+    def test_the_logistic_forms_are_unchanged(self, tmp_path):
+        shards, _, _ = pooled(tmp_path, [batch(MATCH)])
+        pairs = [score for one in shards for score in one.pairs]
+        assert str(match_estimate.Sprt(pairs, 0, 10)).startswith("SPRT [0, 10] ")
+
+    def test_an_inconclusive_normalized_test_says_to_keep_the_model(self, tmp_path):
+        shards, estimate, text = pooled(tmp_path, [drawn(1) + pair(2)])
+        pairs = [score for one in shards for score in one.pairs]
+        sprt = match_estimate.Sprt(pairs, 0, 5, model="normalized")
+        printed = match_estimate.report(shards, estimate, text, sprt)
+        assert "and the normalized model again." in printed
+
+    def test_a_model_it_does_not_know_is_refused(self):
+        with pytest.raises(ValueError):
+            match_estimate.Sprt([1.0], 0, 5, model="bayesian")
+
+
 class TestJson:
     """The --json mode, which is the same result the report states, as data.
 
@@ -827,6 +1031,15 @@ class TestJson:
             "nelo_margin",
         ):
             assert written[key] is None, key
+
+    def test_the_sprt_names_its_model(self, tmp_path):
+        arguments = ("--elo0", "0", "--elo1", "5")
+        logistic = self.loaded(tmp_path / "a", [drawn(1) + pair(2)], *arguments)
+        assert logistic["sprt"]["model"] == "logistic"
+        normalized = self.loaded(
+            tmp_path / "b", [drawn(1) + pair(2)], *arguments, "--model", "normalized"
+        )
+        assert normalized["sprt"]["model"] == "normalized"
 
     def test_the_sprt_carries_the_whole_test_and_this_batch(self, tmp_path):
         written = self.loaded(

@@ -347,7 +347,26 @@ time controls, and its margin depends on the number of pairs alone. For the
 same pairs the figure here is the one fastchess prints. `--json` carries it as
 `nelo` and `nelo_margin`.
 
-The sequential test still states its bounds in logistic elo.
+The sequential test takes its bounds in either. `--model normalized` reads
+`--elo0` and `--elo1` as normalized elo, and the default, `--model logistic`,
+reads them as logistic elo as before. Under the normalized model the number of
+games a test needs to settle depends on the bounds and hardly at all on the
+book or the time control, so the same bounds cost about the same whichever is
+played. A normalized test names itself as `SPRT [0, 5] nElo` in the report, the
+line and the trailer, and `--json` carries the model in its `sprt` object.
+
+Every batch of one test is judged under the model it started with. The pair
+counts carried between batches are the same under either, so nothing stops a
+caller changing it part way, but the error rates only hold for a test that did
+not. `actions/summarise-match` takes it as `sprt_model`.
+
+The ratio under the normalized model fits, for each hypothesis, the
+distribution over the five pair scores that is likeliest to have produced the
+pairs while being that many of its own standard deviations from a half. It
+does that as a convex fit at each spread and a search over the spread, rather
+than by the fixed point iteration fastchess uses, which does not converge from
+every set of counts. Where both converge they agree. Hypotheses are limited to
+100 normalized elo either side of nought, far beyond any bound a test uses.
 
 ## Reading a rating estimate
 

@@ -41,6 +41,7 @@ import math
 import re
 import sys
 from collections import Counter
+from itertools import pairwise
 from pathlib import Path
 
 from . import JSON_FORMAT, __version__, match_terminations, rating_estimate, tool
@@ -97,6 +98,25 @@ MAX_PRIOR = 99_999_999
 # expected score rounds to nought or one, which leaves the distribution nothing
 # to fit and the bisection no interval to run in.
 MAX_HYPOTHESIS = 1000
+# The same for a hypothesis in normalized elo. Past it the fit has to put
+# nearly all of the distribution on scores the pairs almost never reached,
+# and the arithmetic cannot meet the condition to the precision it is held
+# to. Tests are run at a few normalized elo, so this is nowhere near a bound
+# anyone asks for.
+MAX_NORMALIZED = 100
+
+# The two ways a sequential test can state its hypotheses. Logistic reads them
+# as the elo the score implies, normalized as the difference in normalized elo.
+MODELS = ("logistic", "normalized")
+# How finely each interval of possible spreads is first scanned when the
+# normalized fit looks for its maximum, before the scan is refined. See
+# likeliest_normalized.
+SPREADS = 40
+# How closely a fitted distribution has to meet the conditions it was fitted
+# to, and how many Newton steps it is given to get there. A fit that does not
+# is refused rather than used.
+CONDITIONS = 1e-12
+MAX_STEPS = 200
 
 
 def read_games(text: str, candidate: str) -> tuple[dict[str, list[float]], int]:
@@ -385,7 +405,197 @@ def likeliest(observed: list[float], mean: float) -> list[float]:
     return [p / (1 + theta * (a - mean)) for a, p in zip(PAIR, observed)]
 
 
-def log_likelihood_ratio(counts: list[int], elo0: float, elo1: float) -> float:
+def with_moments(
+    observed: list[float], mean: float, spread: float, start: tuple[float, float]
+) -> tuple[float, list[float], tuple[float, float]] | None:
+    """The distribution over the five pair scores that is likeliest to have
+    produced `observed` while having this mean and this standard deviation, as
+    (its log likelihood per pair, the distribution, the multipliers that gave
+    it). None where no distribution with every score possible has them.
+
+    Both conditions are linear in the distribution once the mean is fixed, so
+    this is empirical likelihood with two moment conditions: the likelihood is
+    concave and the conditions cut a flat slice through the simplex, so there
+    is one maximum and nothing else to find. With `g_i = (a_i - m,
+    (a_i - m)^2 - s^2)` it is `p_i = phat_i / (1 + lambda . g_i)`, where lambda
+    minimises the convex `-sum_i phat_i log(1 + lambda . g_i)`. Newton's method
+    finds it, halving any step that would leave the region where every
+    `1 + lambda . g_i` is positive or that would not go downhill.
+
+    Such a distribution exists exactly when nought is inside the convex hull
+    of the five g_i. They lie on a parabola, so that is the spread lying above
+    the chord through the two scores either side of the mean and below the
+    chord through the two ends, which is what the first lines check."""
+    if not 0 < mean < 1:
+        return None
+    below = max(a for a in PAIR if a <= mean)
+    above = min(a for a in PAIR if a >= mean)
+    if not (mean - below) * (above - mean) < spread**2 < mean * (1 - mean):
+        return None
+    moments = [(a - mean, (a - mean) ** 2 - spread**2) for a in PAIR]
+
+    def dual(first: float, second: float) -> float:
+        total = 0.0
+        for p, (x, y) in zip(observed, moments):
+            inside = 1 + first * x + second * y
+            if inside <= 0:
+                return math.inf
+            total -= p * math.log(inside)
+        return total
+
+    first, second = start
+    if dual(first, second) == math.inf:
+        first = second = 0.0
+    value = dual(first, second)
+    # Stopped on the conditions themselves rather than on the likelihood,
+    # which a score seen almost never barely moves while the fit is still
+    # wrong about it. At the minimum the fitted distribution sums to one and
+    # has the mean and the spread asked for.
+    for _ in range(MAX_STEPS):
+        fitted = [
+            p / (1 + first * x + second * y) for p, (x, y) in zip(observed, moments)
+        ]
+        g1 = -sum(q * x for q, (x, _) in zip(fitted, moments))
+        g2 = -sum(q * y for q, (_, y) in zip(fitted, moments))
+        if abs(sum(fitted) - 1) < CONDITIONS and max(abs(g1), abs(g2)) < CONDITIONS:
+            return (
+                sum(p * math.log(q) for p, q in zip(observed, fitted)),
+                fitted,
+                (first, second),
+            )
+        h11 = h12 = h22 = 0.0
+        for p, q, (x, y) in zip(observed, fitted, moments):
+            h11 += q * q / p * x * x
+            h12 += q * q / p * x * y
+            h22 += q * q / p * y * y
+        determinant = h11 * h22 - h12 * h12
+        if not determinant > 0:
+            break
+        step1 = -(h22 * g1 - h12 * g2) / determinant
+        step2 = -(h11 * g2 - h12 * g1) / determinant
+        # Halved while it would leave the region or climb. Near the minimum
+        # the dual is flat to within its own rounding, so a step that climbs
+        # by no more than that is taken: refusing it would stop the fit short
+        # of conditions a full step meets.
+        scale = 1.0
+        while scale > 1e-20:
+            trial = dual(first + scale * step1, second + scale * step2)
+            if trial <= value + 1e-14 * (1 + abs(value)):
+                break
+            scale /= 2
+        else:
+            break
+        first, second, value = first + scale * step1, second + scale * step2, trial
+    return None
+
+
+def feasible_spreads(t: float) -> list[tuple[float, float]]:
+    """The spreads a distribution over the five pair scores can have while its
+    mean is `1/2 + t s`, as open intervals.
+
+    with_moments can meet a mean m and a spread s exactly when s squared lies
+    below `m (1 - m)` and above `(m - a_k)(a_(k+1) - m)`, where a_k and
+    a_(k+1) are the scores either side of m. With `m = 1/2 + t s` the first is
+    `s < 1 / (2 sqrt(1 + t^2))`, and each of the second turns over where a
+    quadratic in s has a root. Those roots, and the spreads at which the mean
+    crosses a score, cut the range into pieces on which the answer does not
+    change, so each piece is tried once at its middle."""
+    top = 0.5 / math.sqrt(1 + t * t)
+    cuts = {0.0, top}
+    for below, above in pairwise(PAIR):
+        # s^2 (1 + t^2) + t s (1 - a_k - a_(k+1)) + (1/2 - a_k)(1/2 - a_(k+1))
+        a, b, c = 1 + t * t, t * (1 - below - above), (0.5 - below) * (0.5 - above)
+        discriminant = b * b - 4 * a * c
+        if discriminant >= 0:
+            for sign in (-1, 1):
+                cuts.add((-b + sign * math.sqrt(discriminant)) / (2 * a))
+    if t:
+        cuts.update((score - 0.5) / t for score in PAIR)
+    cuts = sorted(cut for cut in cuts if 0 <= cut <= top)
+    pieces = []
+    for low, high in pairwise(cuts):
+        middle = (low + high) / 2
+        mean = 0.5 + t * middle
+        below = max(a for a in PAIR if a <= mean)
+        above = min(a for a in PAIR if a >= mean)
+        if high > low and (mean - below) * (above - mean) < middle**2 < mean * (
+            1 - mean
+        ):
+            pieces.append((low, high))
+    return pieces
+
+
+def likeliest_normalized(observed: list[float], t: float) -> tuple[float, list[float]]:
+    """The distribution over the five pair scores that is likeliest to have
+    produced `observed` while being `t` of its own standard deviations above a
+    half, as (its log likelihood per pair, the distribution).
+
+    The condition `mean - 1/2 = t sd` is not linear in the distribution, so
+    the fit is split in two. For a given spread s the mean is `1/2 + t s`,
+    both conditions are linear, and with_moments finds the one maximum there.
+    What is left is one number, the spread. feasible_spreads says which
+    spreads a distribution can have, and within each such interval the best
+    is found by a scan refined by golden section. The likelihood falls away to
+    nothing at the ends of every interval, where the fit has to empty a score
+    the counts say happens, so the maximum is inside one of them.
+
+    Van den Bergh's note on normalized elo, and fastchess after it, solve the
+    same maximum by a fixed point iteration instead. That agrees with this
+    where it converges, and it does not always converge: from some counts it
+    reaches a step with no root to take, or cycles. Split this way, the part
+    that has to be solved exactly is convex and the rest is a search along a
+    line, so each half can be checked on its own."""
+    tried: dict[float, tuple[float, list[float]] | None] = {}
+    multipliers = (0.0, 0.0)
+
+    def fit(spread: float) -> float:
+        nonlocal multipliers
+        if spread not in tried:
+            found = with_moments(observed, 0.5 + t * spread, spread, multipliers)
+            if found is not None:
+                multipliers = found[2]
+                tried[spread] = found[:2]
+            else:
+                tried[spread] = None
+        found = tried[spread]
+        return -math.inf if found is None else found[0]
+
+    ratio = (math.sqrt(5) - 1) / 2
+    for low, high in feasible_spreads(t):
+        multipliers = (0.0, 0.0)
+        scan = [low + (high - low) * (step + 0.5) / SPREADS for step in range(SPREADS)]
+        values = [fit(spread) for spread in scan]
+        best = max(range(SPREADS), key=values.__getitem__)
+        if values[best] == -math.inf:
+            continue
+        left_end = scan[best - 1] if best else low
+        right_end = scan[best + 1] if best + 1 < SPREADS else high
+        left = right_end - ratio * (right_end - left_end)
+        right = left_end + ratio * (right_end - left_end)
+        for _ in range(100):
+            if fit(left) > fit(right):
+                right_end, right = right, left
+                left = right_end - ratio * (right_end - left_end)
+            else:
+                left_end, left = left, right
+                right = left_end + ratio * (right_end - left_end)
+    found = [spread for spread in tried if tried[spread] is not None]
+    if not found:
+        raise ArithmeticError(f"no distribution is {t} of its spread above a half")
+    return tried[max(found, key=lambda spread: tried[spread][0])]
+
+
+def normalized_t(nelo: float) -> float:
+    """A difference in normalized elo as the distance from a half, in standard
+    deviations of a pair's score, that the fit is asked for. A pair's spread
+    is a game's divided by the square root of two, which is where that factor
+    comes from."""
+    return math.sqrt(2) * nelo / NELO
+
+
+def log_likelihood_ratio(
+    counts: list[int], elo0: float, elo1: float, model: str = "logistic"
+) -> float:
     """How much likelier the pairs are under elo1 than under elo0.
 
     The generalized log likelihood ratio of Van den Bergh's note under the
@@ -393,10 +603,19 @@ def log_likelihood_ratio(counts: list[int], elo0: float, elo1: float) -> float:
     the same pairs the number here is the number it prints. The counts are the
     pairs by what the candidate scored in them, in PENTANOMIAL order, so the
     shared pairs and the doubly drawn ones are one bin already, which is the
-    bin fastchess merges them into."""
+    bin fastchess merges them into.
+
+    Under the normalized model the hypotheses are differences in normalized
+    elo, and each is fitted by likeliest_normalized rather than by a mean. The
+    ratio is the difference between the two fitted log likelihoods, which is
+    the same quantity the logistic model works out term by term."""
     counted = [count or REGULARISED for count in counts]
     total = sum(counted)
     observed = [count / total for count in counted]
+    if model == "normalized":
+        under0, _ = likeliest_normalized(observed, normalized_t(elo0))
+        under1, _ = likeliest_normalized(observed, normalized_t(elo1))
+        return total * (under1 - under0)
     under0 = likeliest(observed, expected_score(elo0))
     under1 = likeliest(observed, expected_score(elo1))
     return total * sum(
@@ -449,7 +668,12 @@ class Sprt:
     exactly, so the counts are what is carried.
 
     The pair is the unit, as it is for the estimate, so a game a shard left
-    without a partner is out of this too."""
+    without a partner is out of this too.
+
+    The model says what the hypotheses are differences in: logistic elo, or
+    normalized elo. The counts are the same under either, so a test could be
+    carried on under the other model, but the error rates hold only for a
+    test judged under the one it started with."""
 
     def __init__(
         self,
@@ -457,8 +681,11 @@ class Sprt:
         elo0: float,
         elo1: float,
         prior: list[int] | None = None,
+        model: str = "logistic",
     ):
-        self.elo0, self.elo1 = elo0, elo1
+        if model not in MODELS:
+            raise ValueError(f"the model is one of {', '.join(MODELS)}, not {model}")
+        self.elo0, self.elo1, self.model = elo0, elo1, model
         counted = Counter(pairs)
         self.batch = [counted[score] for score in PENTANOMIAL]
         self.prior = list(prior) if prior else [0] * len(PENTANOMIAL)
@@ -468,7 +695,9 @@ class Sprt:
             played + before for played, before in zip(self.batch, self.prior)
         ]
         self.llr = (
-            log_likelihood_ratio(self.counts, elo0, elo1) if sum(self.counts) else 0.0
+            log_likelihood_ratio(self.counts, elo0, elo1, model)
+            if sum(self.counts)
+            else 0.0
         )
         if self.llr >= UPPER:
             self.verdict = "passed"
@@ -479,7 +708,16 @@ class Sprt:
 
     @property
     def hypotheses(self) -> str:
-        return f"[{number(self.elo0)}, {number(self.elo1)}]"
+        # The logistic form is the one every line and trailer carried before
+        # there was a choice, so it stays as it was and the normalized one
+        # names itself
+        unit = " nElo" if self.model == "normalized" else ""
+        return f"[{number(self.elo0)}, {number(self.elo1)}]{unit}"
+
+    @property
+    def unit(self) -> str:
+        """What the hypotheses are differences in, as a sentence says it."""
+        return "normalized elo" if self.model == "normalized" else "elo"
 
     @property
     def bounds(self) -> str:
@@ -517,21 +755,26 @@ def sequential(sprt: Sprt) -> str:
     """The sprt reading for the report, and what its verdict means."""
     means = {
         "passed": (
-            f"The pairs favour a difference of about {number(sprt.elo1)} elo"
-            f" over one of about {number(sprt.elo0)}, at a five percent error"
-            " rate each way. That is the hypothesis the test prefers and not a"
+            f"The pairs favour a difference of about {number(sprt.elo1)}"
+            f" {sprt.unit} over one of about {number(sprt.elo0)}, at a five"
+            " percent error rate each way. That is the hypothesis the test prefers and not a"
             " floor under the difference: the estimate above is what the games"
             " measured."
         ),
         "failed": (
-            f"The pairs favour a difference of about {number(sprt.elo0)} elo"
-            f" over one of about {number(sprt.elo1)}, at a five percent error"
-            " rate each way. That does not show the candidate is weaker, only"
+            f"The pairs favour a difference of about {number(sprt.elo0)}"
+            f" {sprt.unit} over one of about {number(sprt.elo1)}, at a five"
+            " percent error rate each way. That does not show the candidate is weaker, only"
             " that the games did not favour the larger difference."
         ),
         "inconclusive": (
             "The games so far settle it neither way. Launch another batch with"
-            f" prior_pairs set to {sprt.carried}."
+            f" prior_pairs set to {sprt.carried}"
+            + (
+                " and the normalized model again."
+                if sprt.model == "normalized"
+                else "."
+            )
         ),
     }
     # the table above is this batch, so a test carrying earlier batches has a
@@ -820,6 +1063,7 @@ def as_json(
         "sprt": None
         if sprt is None
         else {
+            "model": sprt.model,
             "elo0": sprt.elo0,
             "elo1": sprt.elo1,
             "llr": sprt.llr,
@@ -892,6 +1136,13 @@ def main() -> None:
         help="the pairs the earlier batches of this test played, by score,"
         " as the summary of the last one printed them",
     )
+    parser.add_argument(
+        "--model",
+        choices=MODELS,
+        default="logistic",
+        help="what --elo0 and --elo1 are differences in: logistic elo, the"
+        " default, or normalized elo",
+    )
     printed = parser.add_mutually_exclusive_group()
     printed.add_argument(
         "--line",
@@ -918,16 +1169,18 @@ def main() -> None:
         prior = read_prior(args.prior_pairs)
     except ValueError as bad:
         parser.error(f"--prior-pairs is a count for each pair score: {bad}")
+    if args.elo0 is None and args.model != "logistic":
+        parser.error("--model says what an sprt's bounds are in, so it wants --elo0")
     if args.elo0 is None and any(prior):
         parser.error("--prior-pairs carries a test on, so it wants --elo0 and --elo1")
     if args.elo0 is not None:
+        cap = MAX_NORMALIZED if args.model == "normalized" else MAX_HYPOTHESIS
         for name, elo in (("--elo0", args.elo0), ("--elo1", args.elo1)):
             # a hypothesis off the end of the model, or not a number at all,
             # leaves the fit with nothing to solve for
-            if not math.isfinite(elo) or abs(elo) > MAX_HYPOTHESIS:
+            if not math.isfinite(elo) or abs(elo) > cap:
                 parser.error(
-                    f"{name} is an elo difference, so it is between"
-                    f" -{MAX_HYPOTHESIS} and {MAX_HYPOTHESIS}"
+                    f"{name} is an elo difference, so it is between -{cap} and {cap}"
                 )
         # the null is the weaker of the two, and a test whose ends meet has no
         # evidence to weigh: its ratio is nought whatever the games did
@@ -940,7 +1193,11 @@ def main() -> None:
         sys.exit(f"no games for {args.candidate} in {len(args.pgn)} shards")
     pairs = [score for shard in shards for score in shard.pairs]
     estimate = Estimate(sum(games), len(games), pairs)
-    sprt = Sprt(pairs, args.elo0, args.elo1, prior) if args.elo0 is not None else None
+    sprt = (
+        Sprt(pairs, args.elo0, args.elo1, prior, args.model)
+        if args.elo0 is not None
+        else None
+    )
 
     if args.trailer:
         print(trailer(estimate, args.tc, args.baseline, sprt))
