@@ -52,6 +52,12 @@ RECORD = rating_estimate.RECORD
 TAG = rating_estimate.TAG
 
 LN10 = math.log(10)
+# Normalized elo is the score's distance from a half in standard deviations of
+# one game, times this. The scale is chosen so that where no game is drawn and
+# the two games of a pair are unrelated, a small difference reads the same in
+# normalized elo as in logistic elo. It is the constant fastchess and fishtest
+# use, so the figure here is the one they print for the same pairs.
+NELO = 800 / LN10
 # the 95% interval, in standard errors, defined beside the other ± this tooling
 # prints so that the two cannot drift apart under one symbol
 CONFIDENCE = rating_estimate.CONFIDENCE
@@ -264,7 +270,22 @@ class Estimate:
     there, so the estimate is bounded on one side and says so instead. A match
     with no complete pair has no interval either, which is the same answer as
     not having measured. An interval that fell back to a modelled spread is
-    marked, since it is a different claim from a measured one."""
+    marked, since it is a different claim from a measured one.
+
+    Beside it is the difference in normalized elo. Logistic elo reads a score,
+    and how far a given improvement moves the score depends on how often the
+    games are drawn, so the same change reads as fewer elo on a drawish book or
+    at a long time control. Normalized elo divides the distance from a half by
+    the spread of the pairs instead, which makes it a measure of how clearly
+    the games tell the two sides apart. Two runs on different books or at
+    different time controls can be compared in it, and the games a test needs
+    to settle on it barely depend on the draw rate.
+
+    The spread of one game is taken as the spread of a pair times the square
+    root of two, `(p - 1/2) / sqrt(2 var) * 800 / ln 10`. Its margin comes
+    from the same interval on the score, which with the spread held where it
+    was measured is `1.96 * 800 / ln 10 / sqrt(2 pairs)`: it depends on the
+    number of pairs and on nothing else."""
 
     def __init__(self, points: float, games: int, pair_scores: list[float]):
         self.games = games
@@ -282,6 +303,10 @@ class Estimate:
         # set when the pairs showed no spread and the interval falls back to
         # a modelled one, which is a different claim from a measured interval
         self.modelled = False
+        # the difference in normalized elo, where there is a spread to
+        # normalize by
+        self.nelo: float | None = None
+        self.nelo_margin: float | None = None
 
         if not games or not pair_scores:
             self.bounded = "not measured"
@@ -316,6 +341,8 @@ class Estimate:
         self.margin = CONFIDENCE * error * slope
         self.low, self.high = self.elo - self.margin, self.elo + self.margin
         self.los = 0.5 * (1 + math.erf((self.paired - 0.5) / (error * math.sqrt(2))))
+        self.nelo = (self.paired - 0.5) / math.sqrt(2 * variance) * NELO
+        self.nelo_margin = CONFIDENCE * NELO / math.sqrt(2 * self.pairs)
 
     def __str__(self) -> str:
         if self.bounded == "not measured":
@@ -573,7 +600,9 @@ def interval(estimate: Estimate) -> str:
     return (
         f"The 95% interval is {round(estimate.low):+d} to"
         f" {round(estimate.high):+d} elo, and the likelihood of superiority is"
-        f" {100 * estimate.los:.1f}%.{modelled}"
+        f" {100 * estimate.los:.1f}%. In normalized elo the difference is"
+        f" {round(estimate.nelo):+d} ±{round(estimate.nelo_margin)}, which is"
+        f" the figure to compare across books and time controls.{modelled}"
     )
 
 
@@ -732,6 +761,10 @@ def figures(estimate: Estimate, left_over: dict[str, int] | None = None) -> dict
         "low": finite(estimate.low),
         "high": finite(estimate.high),
         "los": estimate.los if measured else None,
+        # normalized elo, null wherever the logistic interval is, since both
+        # need a spread to read
+        "nelo": estimate.nelo,
+        "nelo_margin": estimate.nelo_margin,
         "bounded": estimate.bounded,
         "modelled": estimate.modelled,
     }

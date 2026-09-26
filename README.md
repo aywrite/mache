@@ -101,7 +101,7 @@ match-estimate strength-1-1-shard-*/games.pgn \
 ```
 +56 ±37 Elo (150 games)
 
-75 pairs from 150 games. The 95% interval is +19 to +93 elo, and the likelihood of superiority is 99.9%.
+75 pairs from 150 games. The 95% interval is +19 to +93 elo, and the likelihood of superiority is 99.9%. In normalized elo the difference is +85 ±56, which is the figure to compare across books and time controls.
 
 | pair score | 0 | 0.5 | 1 | 1.5 | 2 |
 | --- | --- | --- | --- | --- | --- |
@@ -329,6 +329,25 @@ cannot be checked against the code that produced it.
 
 `--line` and `--trailer` are one line each and carry no version. They are
 quoted beside a report or a manifest that does.
+
+## Logistic and normalized elo
+
+The headline figure is logistic elo, read off the score with
+`-400 log10(1/p - 1)`. How far a given improvement moves the score depends on
+how often the games are drawn. The same change reads as fewer elo on a balanced
+book than on an unbalanced one, and fewer at a long time control than a short
+one, so two runs that differ in either are not comparable in it.
+
+The report also gives the difference in normalized elo, which is what
+fastchess prints as nElo and what fishtest states its bounds in. It is the
+score's distance from a half divided by the spread of the pairs, scaled so that
+a match with no draws reads about the same in both. Because it measures how
+clearly the games separate the two sides, it can be compared across books and
+time controls, and its margin depends on the number of pairs alone. For the
+same pairs the figure here is the one fastchess prints. `--json` carries it as
+`nelo` and `nelo_margin`.
+
+The sequential test still states its bounds in logistic elo.
 
 ## Reading a rating estimate
 

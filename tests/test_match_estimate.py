@@ -682,6 +682,70 @@ class TestSequential:
         assert "That does not show the candidate is weaker" in printed
 
 
+class TestNormalized:
+    """The difference in normalized elo, pinned against what the pinned
+    fastchess works out for the same pairs.
+
+    The figures were printed by fastchess's own EloPentanomial, compiled at the
+    pinned tag and given each count as a `Stats`, which is the same object
+    whose nElo it prints under a match. The first counts are the real match
+    above, the next two are fastchess's own sprt cases and the last is the
+    example the README shows."""
+
+    CASES = (
+        (MATCH, 83.855453, 87.911717),
+        ([223, 9863, 21279, 10037, 246], 1.794764, 2.359447),
+        ([871, 26175, 55983, 26678, 821], 1.219646, 1.448342),
+        ([2, 9, 36, 19, 9], 84.892025, 55.600252),
+    )
+
+    @staticmethod
+    def estimate(counts):
+        scores = [
+            score
+            for score, count in zip(match_estimate.PENTANOMIAL, counts)
+            for _ in range(count)
+        ]
+        return match_estimate.Estimate(sum(scores), 2 * len(scores), scores)
+
+    @pytest.mark.parametrize("counts,nelo,margin", CASES)
+    def test_the_figure_is_the_one_fastchess_prints(self, counts, nelo, margin):
+        estimate = self.estimate(counts)
+        # fastchess puts its interval at 1.959964 standard errors and this
+        # tooling at 1.96, which moves the margin in the fifth figure
+        assert math.isclose(estimate.nelo, nelo, abs_tol=1e-4)
+        assert math.isclose(estimate.nelo_margin, margin, rel_tol=1e-4)
+
+    def test_the_draw_rate_moves_the_logistic_figure_and_not_the_normalized_one(
+        self,
+    ):
+        # The same evidence, once as decisive pairs and once as a drawish
+        # match. The drawish one is 1.5 against 0.5 where the other is 2
+        # against 0, so its score sits nearer a half and its logistic elo is
+        # smaller, while the pairs are spread in the same proportion about
+        # that score and the normalized figure does not move.
+        decisive = self.estimate([30, 0, 0, 0, 70])
+        drawish = self.estimate([0, 30, 0, 70, 0])
+        assert drawish.elo < decisive.elo / 2
+        assert math.isclose(drawish.nelo, decisive.nelo)
+
+    def test_the_margin_depends_on_the_number_of_pairs_alone(self):
+        decisive = self.estimate([30, 0, 0, 0, 70])
+        drawish = self.estimate([0, 10, 80, 10, 0])
+        assert math.isclose(decisive.nelo_margin, drawish.nelo_margin)
+
+    def test_the_report_states_it_beside_the_interval(self, tmp_path):
+        shards, estimate, text = pooled(tmp_path, [batch([2, 9, 36, 19, 9])])
+        printed = match_estimate.report(shards, estimate, text)
+        assert "In normalized elo the difference is +85 ±56," in printed
+
+    def test_a_sweep_has_no_normalized_figure(self):
+        # every pair went the same way, so there is no spread to divide by
+        estimate = self.estimate([0, 0, 0, 0, 5])
+        assert estimate.nelo is None
+        assert estimate.nelo_margin is None
+
+
 class TestJson:
     """The --json mode, which is the same result the report states, as data.
 
@@ -729,6 +793,10 @@ class TestJson:
         assert round(written["elo"]) == 66
         assert written["line"].startswith("+66 ")
         assert written["low"] < written["elo"] < written["high"]
+        # normalized elo beside it, unrounded like the rest
+        expected = TestNormalized.estimate(written["pentanomial"])
+        assert written["nelo"] == pytest.approx(expected.nelo)
+        assert written["nelo_margin"] == pytest.approx(expected.nelo_margin)
 
     def test_a_bounded_estimate_is_null_and_not_an_infinity(self, tmp_path):
         # every pair went the same way, so the model has no elo for the score
@@ -748,7 +816,16 @@ class TestJson:
         assert written["bounded"] == "not measured"
         assert written["unpaired"] == 1
         assert written["score"] == 1.0
-        for key in ("paired_score", "elo", "margin", "low", "high", "los"):
+        for key in (
+            "paired_score",
+            "elo",
+            "margin",
+            "low",
+            "high",
+            "los",
+            "nelo",
+            "nelo_margin",
+        ):
             assert written[key] is None, key
 
     def test_the_sprt_carries_the_whole_test_and_this_batch(self, tmp_path):
