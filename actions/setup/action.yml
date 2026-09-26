@@ -19,8 +19,9 @@ inputs:
     description: >
       The book table to fetch from, in the calling repository's checkout. It is
       called as `list`, `pin`, `fetch <book> <dir>` and `verify <book> <dir>`;
-      actions/setup/README.md states the contract.
-    default: scripts/book.sh
+      actions/setup/README.md states the contract. Empty is the table this
+      repository ships, bin/book_table.sh.
+    default: ""
   estimator_only:
     description: >
       Skip the cache, the fastchess build and the books. Put the package on the
@@ -45,6 +46,10 @@ runs:
     # down here. It is part of the cache key, so without this the key would
     # hold a second copy of the pin and a changed pin would restore the file
     # fetched at the old one under the new one's name.
+    #
+    # The table is settled here too, so the steps after this one read the same
+    # table whether the caller named one or took the one shipped beside this
+    # action.
     - name: Read the books pin
       if: inputs.estimator_only != 'true'
       id: books
@@ -52,9 +57,11 @@ runs:
       env:
         BOOK_TABLE: ${{ inputs.book_table }}
       run: |
+        BOOK_TABLE=${BOOK_TABLE:-${GITHUB_ACTION_PATH}/../../bin/book_table.sh}
         pin=$("$BOOK_TABLE" pin) \
           || { echo "::error::${BOOK_TABLE} does not say what commit its books come from"; exit 1; }
         echo "pin=${pin}" >> "$GITHUB_OUTPUT"
+        echo "table=${BOOK_TABLE}" >> "$GITHUB_OUTPUT"
 
     - name: Cache the match tools
       if: inputs.estimator_only != 'true'
@@ -77,13 +84,12 @@ runs:
         # anywhere.
         key: match-tools-${{ inputs.fastchess }}-release-books-${{ steps.books.outputs.pin }}
 
-    - name: Build the match tools
+    - name: Build fastchess
       if: inputs.estimator_only != 'true' && steps.cache.outputs.cache-hit != 'true'
       shell: bash
       env:
         FASTCHESS: ${{ inputs.fastchess }}
         FASTCHESS_SHA: ${{ inputs.fastchess_sha }}
-        BOOK_TABLE: ${{ inputs.book_table }}
       run: |
         mkdir -p tools
         git clone --depth 1 --branch "$FASTCHESS" \
@@ -108,13 +114,26 @@ runs:
         # do the searching, so the tuning it gives up costs nothing measurable.
         make -C /tmp/fastchess build=release -j"$(nproc)"
         cp /tmp/fastchess/fastchess tools/
-        # Every book in the table, rather than the one a run asked for. Both of
-        # them together are about four and a half megabytes, which is less than
-        # an input to choose between them would be worth, and it keeps the
-        # cache to one entry whichever book a run plays. Each is fetched at the
-        # pin and checked against the sha256 the table names.
+
+    # Every book in the table, rather than the one a run asked for. Both of the
+    # shipped table's books together are about four and a half megabytes, which
+    # is less than an input to choose between them would be worth, and it keeps
+    # the cache to one entry whichever book a run plays. Each is fetched at the
+    # pin and checked against the sha256 the table names.
+    #
+    # Run on a cache hit as well, for any book the cache did not bring back.
+    # The cache names two files, so a table with others of its own would
+    # otherwise find them missing on every run after the first.
+    - name: Fetch the books
+      if: inputs.estimator_only != 'true'
+      shell: bash
+      env:
+        BOOK_TABLE: ${{ steps.books.outputs.table }}
+      run: |
+        mkdir -p tools
         while read -r book; do
-          "$BOOK_TABLE" fetch "$book" tools \
+          "$BOOK_TABLE" verify "$book" tools 2> /dev/null \
+            || "$BOOK_TABLE" fetch "$book" tools \
             || { echo "::error::cannot fetch the ${book} book"; exit 1; }
         done < <("$BOOK_TABLE" list)
 
@@ -122,7 +141,7 @@ runs:
       if: inputs.estimator_only != 'true'
       shell: bash
       env:
-        BOOK_TABLE: ${{ inputs.book_table }}
+        BOOK_TABLE: ${{ steps.books.outputs.table }}
       run: |
         # However they got here. The fetch checks what it downloaded, but the
         # step above is skipped on a cache hit, and a restored file is what

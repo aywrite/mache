@@ -48,7 +48,7 @@ toolchain cache, and calls these for the work inside them.
 
 | Action | What it does |
 | --- | --- |
-| `actions/setup` | Builds [fastchess](https://github.com/Disservin/fastchess) at a pinned commit, fetches an opening book and checks it against a recorded hash, and puts the package on `PYTHONPATH`. Nothing is installed at match time |
+| `actions/setup` | Builds [fastchess](https://github.com/Disservin/fastchess) at a pinned commit, fetches the opening books and checks them against recorded hashes, and puts the package on `PYTHONPATH`. Nothing is installed at match time |
 | `actions/resolve-ref` | Turns a branch, tag, commit or pull request number into a commit, and refuses under a trigger where the ref was not the caller's to choose |
 | `actions/plan-shards` | Works out the shard list and the pairs each shard plays, and checks the sequential test's bounds before anything is built |
 | `actions/plan-ladder` | Reads a gauntlet's ladder into the rungs a matrix plays and the spec the fit reads |
@@ -71,7 +71,9 @@ anybody. [`.github/workflows/README.md`](.github/workflows/README.md) has the
 call, the build contract and the trade in full.
 
 `bin/` holds the shell tools a caller can run directly, which `actions/setup`
-puts on `PATH`. There is no build script among them, and
+puts on `PATH`. One of them is `book_table.sh`, the default book table: two
+standard books from official-stockfish/books, used whenever a caller does not
+pass a table of its own. There is no build script among them, and
 `docs/BUILDING-A-REF.md` says why, along with the one trap a build step written
 for this has to avoid.
 

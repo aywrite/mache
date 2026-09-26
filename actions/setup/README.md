@@ -18,7 +18,7 @@ pins this action at is the code that runs.
 | --- | --- | --- |
 | `fastchess` | `v1.8.2-alpha` | the release to build, and the name a manifest records |
 | `fastchess_sha` | `f618e345…` | the commit that tag points at; a tag that has moved fails the run |
-| `book_table` | `scripts/book.sh` | the book table in the calling repository's checkout |
+| `book_table` | empty | the book table in the calling repository's checkout; empty is the shipped one |
 | `estimator_only` | `false` | skip the cache, the build and the books, and put the package on the path alone |
 
 ## Outputs
@@ -50,8 +50,8 @@ as its own.
 
 ## The book table contract
 
-The table is a program in the calling repository, named by `book_table`, and
-the actions in this repository call it seven ways. A table is how a repository
+The table is a program, named by `book_table`, and the actions in this
+repository call it seven ways. A table is how a repository
 says which openings it plays and how a file it downloaded is checked, which is
 a decision that belongs to the repository rather than to an action.
 
@@ -85,8 +85,29 @@ cannot hand a run the file fetched at the old one under the new one's name.
 `tests/fixtures/books.sh` in this repository is a table of one book, written to
 this contract and used by the smoke test. It is the shortest example of one.
 
+## The shipped table
+
+A caller that leaves `book_table` empty gets `bin/book_table.sh`, which is a
+table like any other and holds two books from
+[official-stockfish/books](https://github.com/official-stockfish/books):
+
+| book | file | what it is |
+| --- | --- | --- |
+| `8moves_v3` | `8moves_v3.pgn` | 34,700 balanced openings |
+| `UHO_4060_v2` | `UHO_4060_v2.epd` | 242,201 positions that favour one side, so fewer games are drawn |
+
+It is there so that a first match needs no table. To play other openings, or to
+fetch from somewhere else, write a table to the contract above and pass its path
+as `book_table` to every action that takes one (and to the reusable workflow, if
+that is what you call). Copying `bin/book_table.sh` is the quickest start. The
+actions read nothing from the shipped table that a table of your own does not
+answer.
+
+The table can also be run by hand. `setup` puts `bin/` on the path, so a later
+step can ask `book_table.sh list`.
+
 ## Known limit
 
-The cache names the two book files of the table it was written against. A
-repository whose table names other files gets them fetched and checked on every
-run rather than restored, which is correct and slower.
+The cache names the two files of the shipped table. A repository whose table
+names other files gets them fetched and checked on every run rather than
+restored, which is correct and slower.

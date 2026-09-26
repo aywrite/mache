@@ -47,9 +47,11 @@ on:
         type: string
         default: 8moves_v3
       book_table:
-        description: The book table in the calling repository.
+        description: >
+          The book table in the calling repository. Empty is the table mache
+          ships, bin/book_table.sh.
         type: string
-        default: scripts/book.sh
+        default: ""
       seed:
         description: Picks the region of the book each rung plays. The run id by default.
         type: string
@@ -252,7 +254,7 @@ jobs:
           MANIFEST_EXTRA: ${{ inputs.manifest_extra }}
         run: |
           # asked for again, since the play action may not have got that far
-          book_file=$("$BOOK_TABLE" file "$BOOK") || book_file=unknown
+          book_file=$("${BOOK_TABLE:-book_table.sh}" file "$BOOK") || book_file=unknown
           book_sha=$(sha256sum "tools/${book_file}" | cut -d' ' -f1) || book_sha=unknown
           repository=$("$OPPONENT_TABLE" repository "$ENGINE") || repository=unknown
           {

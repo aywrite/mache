@@ -52,9 +52,11 @@ on:
         type: string
         default: 8moves_v3
       book_table:
-        description: The book table in the calling repository.
+        description: >
+          The book table in the calling repository. Empty is the table mache
+          ships, bin/book_table.sh.
         type: string
-        default: scripts/book.sh
+        default: ""
       sprt:
         description: Judge a sequential test over the pooled pairs rather than reporting a difference.
         type: boolean

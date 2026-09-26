@@ -25,8 +25,9 @@ inputs:
     description: >
       The book table in the calling repository's checkout. play-shard uses the
       `file`, `format` and `count` verbs; actions/setup/README.md states the
-      whole contract.
-    default: scripts/book.sh
+      whole contract. Empty is the table this repository ships,
+      bin/book_table.sh.
+    default: ""
   workdir:
     description: Where the binaries, the book and the games are. The match runs from here.
     default: tools
@@ -113,6 +114,7 @@ runs:
         BATCH: ${{ inputs.batch }}
         BATCHES: ${{ inputs.batches }}
       run: |
+        BOOK_TABLE=${BOOK_TABLE:-${GITHUB_ACTION_PATH}/../../bin/book_table.sh}
         "${GITHUB_ACTION_PATH}/slice.sh" "$BOOK_TABLE" "$BOOK" "$WORKDIR" \
           "$PAIRS" "$SHARDS" "$SHARD" "$SEED" "$BATCH" "$BATCHES" \
           > slice.txt 2> remarks.txt \

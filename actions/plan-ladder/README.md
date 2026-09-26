@@ -21,7 +21,7 @@ fit reads, and refuses a ladder no runner could play before a runner tries.
 | `ladder` | required | the opponents, as `engine:tag:rating` separated by commas |
 | `opponent_table` | `scripts/opponent.sh` | the opponent table in the calling repository's checkout |
 | `book` | required | the book name the run asked for |
-| `book_table` | `scripts/book.sh` | the book table, as `actions/setup/README.md` describes it |
+| `book_table` | empty | the book table, as `actions/setup/README.md` describes it; empty is the shipped one |
 | `max_match_minutes` | required | the wall clock cap a rung plays under |
 
 ## Outputs
