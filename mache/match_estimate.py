@@ -309,7 +309,15 @@ class Estimate:
     root of two, `(p - 1/2) / sqrt(2 var) * 800 / ln 10`. Its margin comes
     from the same interval on the score, which with the spread held where it
     was measured is `1.96 * 800 / ln 10 / sqrt(2 pairs)`: it depends on the
-    number of pairs and on nothing else."""
+    number of pairs and on nothing else. That is what fastchess prints too.
+    It leaves out the uncertainty in the spread itself, which is nothing at a
+    difference of nought and grows with the difference. Simulated, the
+    interval covers 94.5 to 95.5 percent of the time up to 50 normalized elo,
+    and between 93 and 97 percent at 100 depending on how drawish the pairs
+    are.
+
+    Where every pair scored the same the spread is modelled rather than
+    measured, and there is no normalized figure at all."""
 
     def __init__(self, points: float, games: int, pair_scores: list[float]):
         self.games = games
@@ -359,14 +367,19 @@ class Estimate:
             variance = self.paired * (1 - self.paired) / 2
             self.modelled = True
         error = math.sqrt(variance / self.pairs)
+        # Normalized elo is the score over the spread, so a modelled spread
+        # would make it a function of the score alone: every pair scoring
+        # one and a half would read as +201 whatever the games showed. The
+        # measured figure is unbounded there, so there is none to give.
+        if not self.modelled:
+            self.nelo = (self.paired - 0.5) / math.sqrt(2 * variance) * NELO
+            self.nelo_margin = CONFIDENCE * NELO / math.sqrt(2 * self.pairs)
 
         self.elo = -400 * math.log10(1 / self.paired - 1)
         slope = 400 / (LN10 * self.paired * (1 - self.paired))
         self.margin = CONFIDENCE * error * slope
         self.low, self.high = self.elo - self.margin, self.elo + self.margin
         self.los = 0.5 * (1 + math.erf((self.paired - 0.5) / (error * math.sqrt(2))))
-        self.nelo = (self.paired - 0.5) / math.sqrt(2 * variance) * NELO
-        self.nelo_margin = CONFIDENCE * NELO / math.sqrt(2 * self.pairs)
 
     def __str__(self) -> str:
         if self.bounded == "not measured":
@@ -545,9 +558,13 @@ def likeliest_normalized(observed: list[float], t: float) -> tuple[float, list[f
     both conditions are linear, and with_moments finds the one maximum there.
     What is left is one number, the spread. feasible_spreads says which
     spreads a distribution can have, and within each such interval the best
-    is found by a scan refined by golden section. The likelihood falls away to
-    nothing at the ends of every interval, where the fit has to empty a score
-    the counts say happens, so the maximum is inside one of them.
+    is found by a scan refined by golden section, and the best of those is
+    the answer. At an end where the spreads that can be reached run out, the
+    fit has to empty a score the counts say happens and the likelihood falls
+    away to nothing. The intervals are also cut where the mean crosses a
+    score, and there the likelihood does not fall away, but the interval on
+    the other side of the cut is searched as well, so a maximum at a cut is
+    found from one side or the other.
 
     Van den Bergh's note on normalized elo, and fastchess after it, solve the
     same maximum by a fixed point iteration instead. That agrees with this
@@ -850,12 +867,19 @@ def interval(estimate: Estimate) -> str:
         if estimate.modelled
         else ""
     )
+    normalized = (
+        ""
+        if estimate.nelo is None or estimate.nelo_margin is None
+        else (
+            f" In normalized elo the difference is {round(estimate.nelo):+d}"
+            f" ±{round(estimate.nelo_margin)}, which is the figure to compare"
+            " across books and time controls."
+        )
+    )
     return (
         f"The 95% interval is {round(estimate.low):+d} to"
         f" {round(estimate.high):+d} elo, and the likelihood of superiority is"
-        f" {100 * estimate.los:.1f}%. In normalized elo the difference is"
-        f" {round(estimate.nelo):+d} ±{round(estimate.nelo_margin)}, which is"
-        f" the figure to compare across books and time controls.{modelled}"
+        f" {100 * estimate.los:.1f}%.{normalized}{modelled}"
     )
 
 
@@ -1203,11 +1227,17 @@ def main() -> None:
         sys.exit(f"no games for {args.candidate} in {len(args.pgn)} shards")
     pairs = [score for shard in shards for score in shard.pairs]
     estimate = Estimate(sum(games), len(games), pairs)
-    sprt = (
-        Sprt(pairs, args.elo0, args.elo1, prior, args.model)
-        if args.elo0 is not None
-        else None
-    )
+    try:
+        sprt = (
+            Sprt(pairs, args.elo0, args.elo1, prior, args.model)
+            if args.elo0 is not None
+            else None
+        )
+    except ArithmeticError as failed:
+        # Only from counts no match plays, of the order of a million pairs
+        # in one score and next to none in the rest, under the normalized
+        # model. Said plainly rather than as a traceback
+        sys.exit(f"the sequential test cannot be fitted to these pairs: {failed}")
 
     if args.trailer:
         print(trailer(estimate, args.tc, args.baseline, sprt))

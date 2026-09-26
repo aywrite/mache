@@ -498,6 +498,25 @@ class TestCommandLine:
         assert result.returncode != 0
         assert f"between -{cap} and {cap}" in result.stderr
 
+    def test_counts_no_fit_can_meet_are_said_plainly(self, tmp_path):
+        # a hundred million pairs in one score and none in the rest, which no
+        # match plays, is past what the fit's arithmetic can meet
+        result = self.run(
+            tmp_path,
+            [drawn(1)],
+            "--elo0",
+            "-3",
+            "--elo1",
+            "3",
+            "--model",
+            "normalized",
+            "--prior-pairs",
+            "0,0,0,0,99999999",
+        )
+        assert result.returncode != 0
+        assert "cannot be fitted to these pairs" in result.stderr
+        assert "Traceback" not in result.stderr
+
     def test_a_model_with_no_test_to_apply_it_to_is_refused(self, tmp_path):
         result = self.run(tmp_path, [drawn(1)], "--model", "normalized")
         assert result.returncode != 0
@@ -774,6 +793,17 @@ class TestNormalized:
         printed = match_estimate.report(shards, estimate, text)
         assert "In normalized elo the difference is +85 ±56," in printed
 
+    def test_every_pair_scoring_the_same_has_no_normalized_figure(self, tmp_path):
+        # the spread is modelled there, and a normalized figure read off a
+        # modelled spread would be a function of the score alone
+        estimate = self.estimate([0, 0, 0, 10, 0])
+        assert estimate.modelled
+        assert estimate.nelo is None
+        assert estimate.nelo_margin is None
+        shards, pooled_estimate, text = pooled(tmp_path, [batch([0, 0, 0, 10, 0])])
+        printed = match_estimate.report(shards, pooled_estimate, text)
+        assert "In normalized elo" not in printed
+
     def test_a_sweep_has_no_normalized_figure(self):
         # every pair went the same way, so there is no spread to divide by
         estimate = self.estimate([0, 0, 0, 0, 5])
@@ -874,6 +904,101 @@ class TestNormalizedSprt:
     ):
         llr = match_estimate.log_likelihood_ratio(counts, elo0, elo1, "normalized")
         assert math.isclose(llr, exact, abs_tol=1e-8)
+
+    def test_a_lopsided_fit_reaches_the_maximum_an_optimiser_finds(self):
+        # A case from the statistical review, where a multi-start optimiser
+        # put the maximum at -1.7823 per pair. The review quoted the counts
+        # rounded, and a fit that refused spreads it could not meet to 1e-12
+        # got -1.9691 at its exact counts; at these rounded ones both get it
+        observed = [0.607, 0.357, 0.0358, 6.8e-6, 1e-6]
+        observed = [share / sum(observed) for share in observed]
+        value, _ = match_estimate.likeliest_normalized(observed, 0.4055)
+        assert math.isclose(value, -1.7822953064, abs_tol=1e-8)
+
+    @pytest.mark.parametrize(
+        "counts",
+        [[0, 0, 3, 40, 900], [900, 40, 3, 0, 0], [5, 0, 0, 0, 5], [0, 20, 0, 0, 1]],
+    )
+    @pytest.mark.parametrize("nelo", [-100, -5, 0, 5, 100])
+    def test_nothing_drawn_at_random_beats_it_on_lopsided_counts(self, counts, nelo):
+        # Distributions drawn from the whole simplex, from near its corners
+        # to near its middle, each moved onto the condition along two
+        # different families of tilt, one weighting the scores and one their
+        # squares. Lopsided counts are where a fit that stops short shows
+        import random
+
+        observed = self.observed(counts)
+        t = match_estimate.normalized_t(nelo)
+        best, _ = match_estimate.likeliest_normalized(observed, t)
+        draw = random.Random(11)
+
+        def tilted(q, k, power):
+            w = [x * math.exp(k * a**power) for x, a in zip(q, match_estimate.PAIR)]
+            return [x / sum(w) for x in w]
+
+        def gap(q, k, power):
+            mean, spread = self.moments(tilted(q, k, power))
+            return mean - 0.5 - t * spread
+
+        checked = 0
+        for concentration in (0.05, 0.3, 1.0, 5.0):
+            for _ in range(150):
+                q = [draw.gammavariate(concentration, 1) + 1e-300 for _ in range(5)]
+                for power in (1, 2):
+                    low, high = -200.0, 200.0
+                    if not gap(q, low, power) < 0 < gap(q, high, power):
+                        continue
+                    for _ in range(200):
+                        middle = (low + high) / 2
+                        if gap(q, middle, power) < 0:
+                            low = middle
+                        else:
+                            high = middle
+                    candidate = tilted(q, low, power)
+                    if min(candidate) <= 0:
+                        continue
+                    assert self.likelihood(observed, candidate) <= best + 1e-9
+                    checked += 1
+        assert checked > 300
+
+    def test_the_spreads_that_can_be_reached_at_t_one(self):
+        # Worked by hand. The mean is 1/2 + s. Below s = 1/8 it sits between
+        # the scores 1/2 and 3/4 closer than s squared allows, since
+        # (m - 1/2)(3/4 - m) = s (1/4 - s) exceeds s^2 there. At s = 1/4 it
+        # crosses 3/4, past which the gap's condition always holds, and the
+        # top is 1 / (2 sqrt 2), where s^2 reaches m (1 - m)
+        pieces = match_estimate.feasible_spreads(1.0)
+        assert len(pieces) == 2
+        assert math.isclose(pieces[0][0], 0.125)
+        assert math.isclose(pieces[0][1], 0.25)
+        assert math.isclose(pieces[1][0], 0.25)
+        assert math.isclose(pieces[1][1], 0.5 / math.sqrt(2))
+
+    def test_at_nought_every_spread_to_a_half_can_be_reached(self):
+        # the mean is a half, on a score, so no gap between scores applies
+        assert match_estimate.feasible_spreads(0.0) == [(0.0, 0.5)]
+
+    @pytest.mark.parametrize("t", [-1.5, -0.3, 0.02, 0.7, 2.0])
+    def test_inside_a_reachable_spread_a_fit_meets_it(self, t):
+        for low, high in match_estimate.feasible_spreads(t):
+            for share in (0.1, 0.5, 0.9):
+                spread = low + share * (high - low)
+                found = match_estimate.with_moments(
+                    self.observed([5, 10, 20, 10, 5]), 0.5 + t * spread, spread, (0, 0)
+                )
+                assert found is not None, (t, spread)
+                mean, measured = self.moments(found[1])
+                assert math.isclose(mean, 0.5 + t * spread, abs_tol=1e-9)
+                assert math.isclose(measured, spread, abs_tol=1e-9)
+
+    @pytest.mark.parametrize(
+        "elo0,elo1",
+        [(-match_estimate.MAX_NORMALIZED, 0), (0, match_estimate.MAX_NORMALIZED)],
+    )
+    def test_the_cap_itself_can_be_asked_for(self, elo0, elo1):
+        for counts in (MATCH, [0, 0, 0, 1000, 0], [30000, 1, 20, 1000, 0]):
+            llr = match_estimate.log_likelihood_ratio(counts, elo0, elo1, "normalized")
+            assert math.isfinite(llr)
 
     def test_at_nought_it_is_the_logistic_fit_at_nought(self):
         # normalized elo of nought and logistic elo of nought both say the
