@@ -855,6 +855,26 @@ class TestNormalizedSprt:
             checked += 1
         assert checked > 200
 
+    @pytest.mark.parametrize(
+        "counts,elo0,elo1,exact",
+        [
+            # the ratio at fifty digits, from the same fit written with
+            # mpmath. These are the counts a fit refused before its tolerance
+            # allowed for what the arithmetic can reach: every pair in one or
+            # two scores, so the fit has to give weight to scores the pairs
+            # never reached
+            ([0, 0, 0, 1000, 0], 0, 5, 14.1839693109359),
+            ([0, 0, 0, 0, 30000], 0, 5, 604.311066589889),
+            ([0, 0, 0, 30000, 1000], 0, 5, 446.864225024732),
+            ([30000, 1000, 0, 0, 0], -5, 0, -619.359770540342),
+        ],
+    )
+    def test_a_one_sided_match_is_read_rather_than_refused(
+        self, counts, elo0, elo1, exact
+    ):
+        llr = match_estimate.log_likelihood_ratio(counts, elo0, elo1, "normalized")
+        assert math.isclose(llr, exact, abs_tol=1e-8)
+
     def test_at_nought_it_is_the_logistic_fit_at_nought(self):
         # normalized elo of nought and logistic elo of nought both say the
         # mean is a half and nothing else, so the two fits are one fit

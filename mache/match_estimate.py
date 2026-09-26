@@ -113,9 +113,13 @@ MODELS = ("logistic", "normalized")
 # likeliest_normalized.
 SPREADS = 40
 # How closely a fitted distribution has to meet the conditions it was fitted
-# to, and how many Newton steps it is given to get there. A fit that does not
-# is refused rather than used.
+# to, and how many Newton steps it is given to get there. The fit aims for the
+# first. Where the pairs never reached a score the fit may still have to give
+# it weight, which it does by dividing by a number near nought, and the
+# arithmetic then cannot get below about 1e-11. A fit that can do no better is
+# taken if it is inside the second and refused otherwise.
 CONDITIONS = 1e-12
+CONDITIONS_AT_WORST = 1e-9
 MAX_STEPS = 200
 
 
@@ -451,18 +455,24 @@ def with_moments(
     # which a score seen almost never barely moves while the fit is still
     # wrong about it. At the minimum the fitted distribution sums to one and
     # has the mean and the spread asked for.
+    closest: tuple[float, list[float], tuple[float, float]] | None = None
+    missed = math.inf
     for _ in range(MAX_STEPS):
         fitted = [
             p / (1 + first * x + second * y) for p, (x, y) in zip(observed, moments)
         ]
         g1 = -sum(q * x for q, (x, _) in zip(fitted, moments))
         g2 = -sum(q * y for q, (_, y) in zip(fitted, moments))
-        if abs(sum(fitted) - 1) < CONDITIONS and max(abs(g1), abs(g2)) < CONDITIONS:
-            return (
+        off = max(abs(sum(fitted) - 1), abs(g1), abs(g2))
+        if off < missed:
+            missed = off
+            closest = (
                 sum(p * math.log(q) for p, q in zip(observed, fitted)),
                 fitted,
                 (first, second),
             )
+        if off < CONDITIONS:
+            break
         h11 = h12 = h22 = 0.0
         for p, q, (x, y) in zip(observed, fitted, moments):
             h11 += q * q / p * x * x
@@ -486,7 +496,7 @@ def with_moments(
         else:
             break
         first, second, value = first + scale * step1, second + scale * step2, trial
-    return None
+    return closest if missed < CONDITIONS_AT_WORST else None
 
 
 def feasible_spreads(t: float) -> list[tuple[float, float]]:
