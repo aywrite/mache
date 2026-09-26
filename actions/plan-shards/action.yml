@@ -34,8 +34,9 @@ inputs:
   book_table:
     description: >
       The book table in the calling repository's checkout, as
-      actions/setup/README.md describes it.
-    default: scripts/book.sh
+      actions/setup/README.md describes it. Empty is the table this repository
+      ships, bin/book_table.sh.
+    default: ""
   max_match_minutes:
     description: >
       The wall clock cap a shard plays under. The job timeout this returns is
@@ -91,6 +92,7 @@ runs:
         BOOK: ${{ inputs.book }}
         BOOK_TABLE: ${{ inputs.book_table }}
       run: |
+        BOOK_TABLE=${BOOK_TABLE:-${GITHUB_ACTION_PATH}/../../bin/book_table.sh}
         "${GITHUB_ACTION_PATH}/../../bin/check_book.sh" "$BOOK_TABLE" "$BOOK" \
           2> remarks.txt || { echo "::error::$(cat remarks.txt)"; exit 1; }
         echo "::notice::playing the ${BOOK} book"

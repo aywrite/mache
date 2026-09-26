@@ -81,8 +81,10 @@ and the match reports zero elo with nothing failing.
 
 ## The other two contracts
 
-Both workflows read a **book table** in your repository, described in
-[`actions/setup/README.md`](../../actions/setup/README.md). `calibrate.yml` also
+Both workflows read a **book table**, described in
+[`actions/setup/README.md`](../../actions/setup/README.md). Leave `book_table`
+out and they use the one this repository ships, which knows `8moves_v3` and
+`UHO_4060_v2`; name a table in your repository to play anything else. `calibrate.yml` also
 reads an **opponent table**, described in
 [`actions/plan-ladder/README.md`](../../actions/plan-ladder/README.md).
 `tests/fixtures/books.sh` is a worked example of the first.

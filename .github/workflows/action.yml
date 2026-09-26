@@ -72,6 +72,41 @@ jobs:
           fi
           echo "mache ${REPORTED} with fastchess ${FASTCHESS}"
 
+  # What a caller that names no table gets. It shares a cache key with the
+  # job above, whose table has one book, so a hit here restores less than this
+  # table lists and the setup has to fetch the rest itself.
+  shipped-books:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./actions/setup # zizmor: ignore[self-repository]
+
+      - name: Every book the shipped table lists is there and checks
+        run: |
+          while read -r book; do
+            book_table.sh verify "$book" tools
+          done < <(book_table.sh list)
+
+      - uses: ./actions/plan-shards # zizmor: ignore[self-repository]
+        id: shards
+        with:
+          games: 100
+          shards: 2
+          book: UHO_4060_v2
+          max_match_minutes: 30
+
+      - name: The book is the one asked for
+        env:
+          BOOK: ${{ steps.shards.outputs.book }}
+        run: test "$BOOK" = "UHO_4060_v2"
+
   estimator-only:
     runs-on: ubuntu-latest
     timeout-minutes: 10
