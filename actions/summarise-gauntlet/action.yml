@@ -34,6 +34,13 @@ inputs:
       The list the opponents' ratings come from, named in the summary so a
       figure is not quoted without saying what scale it is on.
     default: "[ccrl](https://computerchess.org.uk/) blitz"
+  scale:
+    description: >
+      The same list as the estimate's line names it, as plain text since the
+      line is pasted where a link would not render. The line reads "on the
+      <scale> scale", so a ladder read off another list has to change this as
+      well as rating_list.
+    default: ccrl blitz
   rating_time_control:
     description: >
       The time control the opponents' published ratings were measured at. It
@@ -66,6 +73,7 @@ runs:
         RUNGS: ${{ inputs.rungs }}
         TIME_CONTROL: ${{ inputs.time_control }}
         RATING_LIST: ${{ inputs.rating_list }}
+        SCALE: ${{ inputs.scale }}
         RATING_TIME_CONTROL: ${{ inputs.rating_time_control }}
         PROVENANCE: ${{ inputs.provenance }}
       run: |

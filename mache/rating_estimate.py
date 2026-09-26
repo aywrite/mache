@@ -39,6 +39,10 @@ CONFIDENCE = 1.96
 # implied rating and the search for the fitted one stop this far out rather than
 # running off to wherever the bracket happens to end.
 MAX_IMPLIED = 1200.0
+# The scale the figure is on, which is the list the ladder's ratings were read
+# off. It is printed with the figure, so it has to be the caller's to say when
+# the ladder came from anywhere else.
+SCALE = "ccrl blitz"
 
 # Games are read one at a time rather than by scanning the whole file for tags,
 # so that a game truncated by an interrupted match cannot pair its opponent with
@@ -72,34 +76,44 @@ def chi_square_95(dof: int) -> float:
 
 
 class Estimate:
-    def __init__(self, rating: float, margin: float, games: int, bounded: str = ""):
+    def __init__(
+        self,
+        rating: float,
+        margin: float,
+        games: int,
+        bounded: str = "",
+        scale: str = SCALE,
+    ):
         self.rating = rating
         self.margin = margin
         self.games = games
         # set when every game went one way, so the games bound the rating from
         # one side only and a figure with a margin either side would be a lie
         self.bounded = bounded
+        self.scale = scale
 
     def __str__(self) -> str:
         if self.bounded:
-            return f"{self.bounded} on the ccrl blitz scale ({self.games} games)"
+            return f"{self.bounded} on the {self.scale} scale ({self.games} games)"
         # the scale is printed with the figure, so a line pasted into a
         # release note carries what its ± means wherever it ends up
         return (
             f"{self.rating:.0f} ±{self.margin:.0f} (95%)"
-            f" on the ccrl blitz scale ({self.games} games)"
+            f" on the {self.scale} scale ({self.games} games)"
         )
 
 
-def fit(pairings: list[tuple[str, float, int, int, int]]) -> tuple[Estimate, str]:
+def fit(
+    pairings: list[tuple[str, float, int, int, int]], scale: str = SCALE
+) -> tuple[Estimate, str]:
     scored = sum(w + d / 2 for _, _, w, d, _ in pairings)
     played = sum(w + d + loss for _, _, w, d, loss in pairings)
     opponents = [opponent for _, opponent, _, _, _ in pairings]
 
     if scored == 0:
-        return Estimate(0, 0, played, f"below {min(opponents):.0f}"), ""
+        return Estimate(0, 0, played, f"below {min(opponents):.0f}", scale), ""
     if scored == played:
-        return Estimate(0, 0, played, f"above {max(opponents):.0f}"), ""
+        return Estimate(0, 0, played, f"above {max(opponents):.0f}", scale), ""
 
     # The expected score only rises with the rating, so bisection cannot miss.
     # The bracket stops where a single pairing would, because past that point
@@ -158,7 +172,7 @@ def fit(pairings: list[tuple[str, float, int, int, int]]) -> tuple[Estimate, str
                 " allows, so one rating does not describe these results and the"
                 " margin above understates how uncertain the figure is"
             )
-    return Estimate(rating, margin, played, ""), note
+    return Estimate(rating, margin, played, "", scale), note
 
 
 def read_pairings(
@@ -251,6 +265,7 @@ def as_json(
         "margin": estimate.margin if measured else None,
         "games": estimate.games,
         "bounded": estimate.bounded,
+        "scale": estimate.scale,
         "note": note,
         "remarks": remarks,
         "line": str(estimate),
@@ -280,6 +295,12 @@ def main() -> None:
     parser.add_argument("pgn", type=Path, help="the games the gauntlet played")
     parser.add_argument("engine", help="the name the engine played under")
     parser.add_argument("ladder", help="opponents, as name:rating pairs")
+    parser.add_argument(
+        "--scale",
+        default=SCALE,
+        help="the list the ladder's ratings come from, printed with the figure"
+        f" (default: {SCALE})",
+    )
     # each of these replaces the whole of stdout, so at most one of them
     printed = parser.add_mutually_exclusive_group()
     printed.add_argument(
@@ -295,13 +316,16 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    # an empty one would print "on the  scale", which names nothing
+    if not args.scale.strip():
+        sys.exit("the scale is empty")
     ladder = read_ladder(args.ladder)
     remarks: list[str] = []
     pairings = read_pairings(args.pgn, args.engine, ladder, remarks)
     if not pairings:
         sys.exit(f"no games for {args.engine} against any of {', '.join(ladder)}")
 
-    estimate, note = fit(pairings)
+    estimate, note = fit(pairings, args.scale.strip())
     if args.json:
         # allow_nan=False rather than the default, so a figure that is not a
         # number fails here rather than being written as one no parser has to

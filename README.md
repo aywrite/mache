@@ -209,6 +209,11 @@ Read by mache 0.1.0.
 `--line` prints the estimate and nothing else. `--json` prints the fit, the
 ladder it was given and a record per opponent, in the same format 1.
 
+The figure is on the scale of the list the ratings were read off, and the
+line names it. That is `ccrl blitz` unless `--scale` says otherwise, so a
+ladder read off the 40/15 list is fitted with `--scale 'ccrl 40/15'`. The
+`summarise-gauntlet` action takes the same thing as its `scale` input.
+
 ### `match-terminations`
 
 ```

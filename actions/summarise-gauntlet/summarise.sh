@@ -7,7 +7,7 @@
 #     summarise.sh <games-dir> <outputs-file>
 #
 # The caller sets ENGINE_NAME, CANDIDATE_SHA, LADDER_SPEC, RUNGS,
-# TIME_CONTROL, RATING_LIST, RATING_TIME_CONTROL and PROVENANCE.
+# TIME_CONTROL, RATING_LIST, SCALE, RATING_TIME_CONTROL and PROVENANCE.
 #
 # The table goes to stdout, so it is in the job's log as well as in the
 # summary: the summary is read from the run's web page and nowhere else, and
@@ -39,14 +39,14 @@ fi
 
 # the estimate's remarks (a rung that played no games, a fit the pairings
 # disagree with) come back on stderr
-python3 -m mache.rating_estimate \
+python3 -m mache.rating_estimate --scale "$SCALE" \
     gauntlet.pgn "$ENGINE_NAME" "$LADDER_SPEC" > table.md 2> notes.txt \
     || { cat notes.txt >&2; exit 1; }
 cat table.md
 
 # asked for again rather than cut out of the table, so a change to the table's
 # layout cannot quietly change what is published
-line=$(python3 -m mache.rating_estimate \
+line=$(python3 -m mache.rating_estimate --scale "$SCALE" \
     gauntlet.pgn "$ENGINE_NAME" "$LADDER_SPEC" --line 2> /dev/null)
 
 {
