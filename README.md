@@ -5,20 +5,21 @@
 
 Chess engine testing on GitHub Actions, with no server to run.
 
-mache plays a match between two versions of an engine on the GitHub-hosted
+mache runs a match between two versions of an engine on the GitHub-hosted
 runners a repository already has. The match is split across jobs that run at
-the same time, and the games are pooled afterwards into one Elo estimate or
-one sequential test (SPRT). A repository can run it on its pull requests or
-start it by hand, and the result goes in the run's summary. fastchess plays
-the games.
+the same time, and the games are pooled afterwards into one elo estimate or
+one sequential test (SPRT). A repository calls it from a workflow of its own,
+on its pull requests or by hand, and the result goes in the run's summary.
+fastchess plays the games.
 
 It suits an engine whose changes are still large enough to show within a few
-thousand games. A small change can take a great many runs to settle, and
-[What hosted runners can measure](#what-hosted-runners-can-measure) says how
-many.
+thousand games. A small change can take many runs to settle, and
+[What hosted runners can measure](https://github.com/aywrite/mache#what-hosted-runners-can-measure)
+says how many.
 
 The tools that read the games also work without GitHub Actions, on pgn files
-fastchess wrote anywhere. [Running a match without CI](#running-a-match-without-ci)
+fastchess wrote anywhere.
+[Running a match without CI](https://github.com/aywrite/mache#running-a-match-without-ci)
 shows how.
 
 The name is from mache (μάχη), Greek for battle, and reads as Measure A CHess
@@ -103,7 +104,7 @@ batches in one run, 1,000 pairs. It stops early if a batch settles the test,
 and otherwise hands back the counts for the next run to carry on from.
 
 For an estimate on its own, the 95% margin in normalized elo, as mache works
-it out, depends on the number of pairs and on nothing else:
+it out, depends only on the number of pairs:
 
 | pairs | margin |
 | ---: | ---: |
@@ -111,37 +112,38 @@ it out, depends on the number of pairs and on nothing else:
 | 1,000 | ±15 |
 | 4,000 | ±8 |
 
-The margin in logistic elo also depends on how many of the games are drawn.
+The margin in logistic elo also depends on how the pairs scored, and so on
+how many games were drawn.
 
 A sequential test runs until the pairs settle it, and the closer its bounds,
 the longer that takes. In the simulation below, halving the gap between the
-bounds took between three and four times the pairs. It ran the normalized test
-with mache's own code, judged every 250 pairs as with the workflow's default
-batch, on a drawish distribution of pair scores:
+bounds took between three and four times the pairs. It ran 300 tests a row of
+the normalized test with mache's own code, judged every 250 pairs as with the
+workflow's default batch. The pair scores were drawn from a distribution in
+which three pairs in five score one point, shifted to each true difference:
 
 | bounds (normalized elo) | true difference at a bound | true difference halfway between |
 | --- | ---: | ---: |
 | [0, 10] | about 4,000 pairs | about 7,000 pairs |
-| [0, 5] | about 14,000 pairs | about 26,000 pairs |
+| [0, 5] | about 13,000 to 14,000 pairs | about 26,000 pairs |
 
 Those are averages, and the spread around them is wide: about one test in ten
 ran to nearly twice the average or longer. At 1,000 pairs a run, the averages
-come to about four to seven runs for [0, 10] and about fourteen to twenty-six
+come to about four to seven runs for [0, 10] and about thirteen to twenty-six
 for [0, 5]. The normalized model is what
 `match-estimate --model normalized` and the `sprt_model` input of
-`actions/summarise-match` use. The reusable workflows take their bounds in
-logistic elo for now, and how long a logistic test runs depends on the draw
-rate as well as the bounds.
+`actions/summarise-match` use. `strength.yml` takes its bounds in logistic elo,
+so its default of [0, 10] is not the first row above, and how long a logistic
+test runs depends on the draw rate as well as the bounds.
 
 How long a batch takes depends on the time control, the engines and the
 runner, so it is worth timing one before planning a test around it. A shard
 is stopped at `max_match_minutes`, 150 by default, and reports the games it
 finished by then.
 
-Both engines of a shard share one runner, so a slow runner slows both. That
-tends to show as noise in the result rather than a lean towards one side,
-though an engine whose strength changes a lot with the time it is given can
-still be affected more than its opponent.
+Both engines of a shard share one runner, so a slow runner slows both. An
+engine whose strength changes a lot with the time it is given loses more to a
+slow runner than one whose strength does not.
 
 GitHub does not charge for its standard hosted runners on public repositories.
 A private repository uses the Actions minutes its plan includes. GitHub's
@@ -349,11 +351,11 @@ openings=$(grep -c '^\[Event ' 8moves_v3.pgn)
 start=$(book-slice --openings "$openings" --pairs 100 --shards 2 --shard 0 --seed 7)
 ```
 
-Then fastchess plays the shard. `-repeat` makes each round two games on one
-opening with the colours reversed, which is what `match-estimate` takes a
-round to be. `-rounds` is the number of pairs and has to match `--pairs`
-above. `nodes=true` and `timeleft=true` put in the pgn what the report's table
-of clocks and nodes is read from; without them that table is all zeros.
+Then fastchess plays the shard. `-repeat` pairs the games as `match-estimate`
+expects. `-rounds` is the number of pairs and has to match `--pairs` above.
+`nodes=true` is what the report's table of clocks and nodes counts moves by,
+and `timeleft=true` gives its last column. Without them the table reads as
+zeros.
 
 ```
 fastchess -engine name=new cmd=./new -engine name=old cmd=./old \
@@ -363,6 +365,9 @@ fastchess -engine name=new cmd=./new -engine name=old cmd=./old \
   -pgnout file=games.pgn nodes=true timeleft=true
 ```
 
+fastchess adds to a `games.pgn` that is already there, so start each shard in
+an empty directory. A shard played twice into one file would be counted twice.
+
 With each shard's games in a directory of its own, one command pools them. The
 directory names become the rows of the shard table:
 
@@ -371,8 +376,8 @@ match-estimate shard-0/games.pgn shard-1/games.pgn \
   --candidate new --baseline old --tc 10+0.1
 ```
 
-`--elo0`, `--elo1` and `--prior-pairs` run the sequential test here the same
-way they do in a workflow. A test played in several batches passes
+`--elo0`, `--elo1`, `--prior-pairs` and `--model` run the sequential test here
+the same way they do in a workflow. A test played in several batches passes
 `--batches` and `--batch` to `book-slice` as well, so that a later batch does
 not replay an earlier one's openings.
 
@@ -459,23 +464,23 @@ how often the games are drawn. The same change reads as fewer elo on a balanced
 book than on an unbalanced one, and fewer at a long time control than a short
 one, so two runs that differ in either are not comparable in it.
 
-The report also gives the difference in normalized elo, which is what
-fastchess prints as nElo. It is the score's distance from a half divided by
-the spread of the pairs, scaled so that a small difference in a match with no
-draws reads about the same in both. Because it measures how clearly the games
-separate the two sides, it compares across books and time controls better
-than logistic elo does, and its margin depends on the number of pairs
-alone. For the
-same pairs the figure here is the one fastchess prints. `--json` carries it as
-`nelo` and `nelo_margin`.
+The report also gives the difference in normalized elo, which is what fastchess
+prints as nElo. It is the score's distance from a half divided by the spread of
+the pairs, scaled so that a small difference in a match with no draws reads
+about the same in both. Because it measures how clearly the games separate the
+two sides, it compares across books and time controls better than logistic elo
+does, and its margin depends on the number of pairs alone. For the same pairs
+the figure here is the one fastchess prints. `--json` carries it as `nelo` and
+`nelo_margin`.
 
 The sequential test takes its bounds in either. `--model normalized` reads
 `--elo0` and `--elo1` as normalized elo, and the default, `--model logistic`,
 reads them as logistic elo as before. Under the normalized model the number of
 games a test needs to settle depends on the bounds, and much less than under
 the logistic model on the book or the time control, so the same bounds cost
-roughly the same whichever is played. A normalized test names itself as `SPRT [0, 5] nElo` in the report, the
-line and the trailer, and `--json` carries the model in its `sprt` object.
+roughly the same whichever is played. A normalized test names itself as
+`SPRT [0, 5] nElo` in the report, the line and the trailer, and `--json`
+carries the model in its `sprt` object.
 
 Every batch of one test is judged under the model it started with. The pair
 counts carried between batches are the same under either, so nothing stops a

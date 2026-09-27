@@ -14,7 +14,7 @@ name = "mache"
 # the one in mache/__init__.py, which is where the --json output reads it from,
 # so there is one version and not two to keep level
 dynamic = ["version"]
-description = "Chess engine testing on GitHub Actions: pool a sharded fastchess match into one Elo estimate or SPRT"
+description = "Pool a sharded fastchess match into one elo estimate or sequential test, and place a chess engine on a rating list"
 readme = "README.md"
 # the floor the `X | None` annotations set
 requires-python = ">=3.10"
