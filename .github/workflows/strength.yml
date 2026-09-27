@@ -1,7 +1,7 @@
 name: Strength
 
 # A whole sharded strength match, as one call. A caller that wants the job
-# graph, its own cache action and its own manifest calls the six actions
+# graph, its own cache action and its own manifest calls the actions
 # instead and writes about two hundred lines; this is for everyone else, and
 # costs about twenty.
 #
@@ -91,7 +91,7 @@ on:
         description: >
           What to hand actions/cache between runs, one path a line. Empty
           caches nothing, which is correct and slower. A caller wanting a
-          toolchain-aware cache action calls the six actions instead: `uses:`
+          toolchain-aware cache action calls the actions instead: `uses:`
           cannot be an expression, so no reusable workflow can take one.
         type: string
         default: ""

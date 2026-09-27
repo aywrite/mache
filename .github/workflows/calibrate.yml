@@ -2,7 +2,7 @@ name: Calibrate
 
 # A whole gauntlet against rated opponents, as one call, and the companion to
 # Strength. The same trade applies: a caller that wants the job graph, its own
-# cache action and its own manifest calls the six actions instead.
+# cache action and its own manifest calls the actions instead.
 
 on:
   workflow_call:

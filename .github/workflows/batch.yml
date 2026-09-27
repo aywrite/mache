@@ -191,7 +191,7 @@ jobs:
           book_table: ${{ inputs.book_table }}
 
       # Generic, because a reusable workflow cannot be handed a cache action.
-      # A caller that wants one that understands its toolchain calls the six
+      # A caller that wants one that understands its toolchain calls the
       # actions and keeps its own step.
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: inputs.cache_paths != ''

@@ -53,7 +53,7 @@ would have been:
   repository reads a manifest back, it has to read this shape or you have to
   write your own.
 
-If any of those matters, call the six actions and write the job graph. It is the
+If any of those matters, call the actions and write the job graph. It is the
 right trade when you need a step rather than a string, and the engine this was
 written for pays it for all three reasons above.
 

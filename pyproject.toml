@@ -14,16 +14,30 @@ name = "mache"
 # the one in mache/__init__.py, which is where the --json output reads it from,
 # so there is one version and not two to keep level
 dynamic = ["version"]
-description = "Read a sharded engine match: the pooled estimate and the ccrl fit"
+description = "Chess engine testing on GitHub Actions: pool a sharded fastchess match into one Elo estimate or SPRT"
 readme = "README.md"
 # the floor the `X | None` annotations set
 requires-python = ">=3.10"
 license = "MIT"
 authors = [{ name = "Andrew Wright" }]
 dependencies = []
+# What PyPI's search and its project page read. The Python versions are the
+# two the tests run on, and no licence classifier is given because the licence
+# field above is the expression that says it.
+keywords = ["chess", "chess-engine", "elo", "sprt", "fastchess", "github-actions"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Games/Entertainment :: Board Games",
+    "Topic :: Software Development :: Testing",
+]
 
 [project.urls]
 Homepage = "https://github.com/aywrite/mache"
+Changelog = "https://github.com/aywrite/mache/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 # What the tests need, and nothing else: the tools themselves need nothing, so
