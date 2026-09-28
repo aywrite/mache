@@ -103,6 +103,10 @@ on:
         description: The alternative the test is against.
         type: number
         default: 10
+      sprt_model:
+        description: What elo0 and elo1 are differences in, logistic or normalized.
+        type: string
+        default: logistic
       cache_paths:
         description: What to hand actions/cache, one path a line.
         type: string
@@ -260,6 +264,7 @@ jobs:
           SPRT: ${{ inputs.sprt }}
           ELO0: ${{ inputs.elo0 }}
           ELO1: ${{ inputs.elo1 }}
+          SPRT_MODEL: ${{ inputs.sprt_model }}
           PRIOR_PAIRS: ${{ inputs.prior_pairs }}
           BUILD: ${{ inputs.build }}
           MANIFEST_EXTRA: ${{ inputs.manifest_extra }}
@@ -291,7 +296,7 @@ jobs:
             echo "startup_ms: ${STARTUP_MS}"
             echo "games_asked: $((PAIRS * 2))"
             if [ "$SPRT" = "true" ]; then
-              echo "sprt: judged by the summary over the pooled pairs, not by fastchess: elo0=${ELO0} elo1=${ELO1} alpha=0.05 beta=0.05 model=logistic prior_pairs=${PRIOR_PAIRS:-none}"
+              echo "sprt: judged by the summary over the pooled pairs, not by fastchess: elo0=${ELO0} elo1=${ELO1} alpha=0.05 beta=0.05 model=${SPRT_MODEL} prior_pairs=${PRIOR_PAIRS:-none}"
             else
               echo "sprt: off"
             fi
@@ -370,6 +375,7 @@ jobs:
           sprt: ${{ inputs.sprt }}
           elo0: ${{ inputs.elo0 }}
           elo1: ${{ inputs.elo1 }}
+          sprt_model: ${{ inputs.sprt_model }}
           prior_pairs: ${{ inputs.prior_pairs }}
           provenance: >-
             The games, the results and a manifest of what each shard played are

@@ -69,6 +69,13 @@ on:
         description: The alternative the test is against.
         type: number
         default: 10
+      sprt_model:
+        description: >
+          What elo0 and elo1 are differences in: `logistic` elo, or
+          `normalized` elo. Every batch of one test is judged under the model
+          it started with, so a test carried on with prior_pairs keeps it.
+        type: string
+        default: logistic
       prior_pairs:
         description: The pair counts of the batches already played. Empty for the first.
         type: string
@@ -188,6 +195,25 @@ jobs:
             exit 1
           }
 
+      # Also before a runner builds anything. The summary refuses both of
+      # these as well, but only once the batch has been played.
+      - name: Check the model and its bounds
+        env:
+          SPRT_MODEL: ${{ inputs.sprt_model }}
+          ELO0: ${{ inputs.elo0 }}
+          ELO1: ${{ inputs.elo1 }}
+        run: |
+          case "$SPRT_MODEL" in
+            logistic|normalized) ;;
+            *) echo "::error::sprt_model is logistic or normalized, and was ${SPRT_MODEL}"
+               exit 1 ;;
+          esac
+          if [ "$SPRT_MODEL" = "normalized" ] \
+             && ! awk -v a="$ELO0" -v b="$ELO1" 'BEGIN { exit !(a >= -100 && a <= 100 && b >= -100 && b <= 100) }'; then
+            echo "::error::normalized bounds are between -100 and 100, and were ${ELO0} and ${ELO1}"
+            exit 1
+          fi
+
       - uses: aywrite/mache/actions/resolve-ref@v0.6.0
         id: candidate
         with:
@@ -266,6 +292,7 @@ jobs:
       sprt: ${{ inputs.sprt }}
       elo0: ${{ inputs.elo0 }}
       elo1: ${{ inputs.elo1 }}
+      sprt_model: ${{ inputs.sprt_model }}
       cache_paths: ${{ inputs.cache_paths }}
       cache_key: ${{ inputs.cache_key }}
       manifest_extra: ${{ inputs.manifest_extra }}
@@ -307,6 +334,7 @@ jobs:
       sprt: ${{ inputs.sprt }}
       elo0: ${{ inputs.elo0 }}
       elo1: ${{ inputs.elo1 }}
+      sprt_model: ${{ inputs.sprt_model }}
       cache_paths: ${{ inputs.cache_paths }}
       cache_key: ${{ inputs.cache_key }}
       manifest_extra: ${{ inputs.manifest_extra }}
@@ -348,6 +376,7 @@ jobs:
       sprt: ${{ inputs.sprt }}
       elo0: ${{ inputs.elo0 }}
       elo1: ${{ inputs.elo1 }}
+      sprt_model: ${{ inputs.sprt_model }}
       cache_paths: ${{ inputs.cache_paths }}
       cache_key: ${{ inputs.cache_key }}
       manifest_extra: ${{ inputs.manifest_extra }}
@@ -389,6 +418,7 @@ jobs:
       sprt: ${{ inputs.sprt }}
       elo0: ${{ inputs.elo0 }}
       elo1: ${{ inputs.elo1 }}
+      sprt_model: ${{ inputs.sprt_model }}
       cache_paths: ${{ inputs.cache_paths }}
       cache_key: ${{ inputs.cache_key }}
       manifest_extra: ${{ inputs.manifest_extra }}

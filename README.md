@@ -130,10 +130,10 @@ which three pairs in five score one point, shifted to each true difference:
 Those are averages, and the spread around them is wide: about one test in ten
 ran to nearly twice the average or longer. At 1,000 pairs a run, the averages
 come to about four to seven runs for [0, 10] and about thirteen to twenty-six
-for [0, 5]. The normalized model is what
-`match-estimate --model normalized` and the `sprt_model` input of
-`actions/summarise-match` use. `strength.yml` takes its bounds in logistic elo,
-so its default of [0, 10] is not the first row above, and how long a logistic
+for [0, 5]. The normalized model is what `match-estimate --model normalized`
+uses, and what `strength.yml` and `actions/summarise-match` use when given
+`sprt_model: normalized`. Both default to logistic elo, so `strength.yml`'s
+default bounds of [0, 10] are not the first row above, and how long a logistic
 test runs depends on the draw rate as well as the bounds.
 
 How long a batch takes depends on the time control, the engines and the
@@ -485,7 +485,7 @@ carries the model in its `sprt` object.
 Every batch of one test is judged under the model it started with. The pair
 counts carried between batches are the same under either, so nothing stops a
 caller changing it part way, but the error rates only hold for a test that did
-not. `actions/summarise-match` takes it as `sprt_model`.
+not. `strength.yml` and `actions/summarise-match` take it as `sprt_model`.
 
 The ratio under the normalized model fits, for each hypothesis, the
 distribution over the five pair scores that is likeliest to have produced the

@@ -111,6 +111,12 @@ the ceiling; asking for more is refused rather than quietly truncated. A test
 that wants more carries on in a second run, the way every batch did before:
 take the `carried` output and hand it to the next run as `prior_pairs`.
 
+`elo0` and `elo1` are logistic elo unless `sprt_model` says `normalized`. A
+test carried on in a second run should be given the same model again. Nothing
+checks that, and the error rates only hold for a test judged under one model
+throughout. The main
+README has how long a normalized test runs at two sets of bounds.
+
 Three outputs come back rather than one. `verdict` is `passed`, `failed` or
 `inconclusive`, and is empty when the run was not a sequential test. `carried`
 is the pair counts of the whole test. `line` is the last batch that played.
