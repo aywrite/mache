@@ -2,6 +2,33 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.0] - 2026-09-28
+
+### Features
+
+- [**breaking**] *(action)* Ship a default book table
+- *(package)* Put the difference in normalized elo in the estimate
+- *(package)* Let the sequential test take its bounds in normalized elo
+- *(package)* Let the rating estimate name the list its ladder came from
+
+### Bug Fixes
+
+- *(package)* Read the movetext from the blank line that ends the tags
+- *(package)* Say when the node rate is not a speed comparison
+- *(package)* Read a one-sided match rather than refuse its fit
+- *(package)* Act on the statistical review of the normalized test
+
+### Documentation
+
+- *(docs)* Lead with what mache is for and what it can measure
+- *(docs)* Correct and tighten the new README sections
+
+### Development
+
+- *(ci)* Guard each ladder stage on the batches asked for and on the verdict
+- *(ci)* Move the self pins to v0.5.0
+- *(ci)* Hold the self pins to the version being released
+
 ## [0.5.0] - 2026-09-21
 
 ### Features
