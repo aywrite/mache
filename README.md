@@ -121,8 +121,8 @@ how many games were drawn.
 A sequential test runs until the pairs settle it, and the closer its bounds,
 the longer that takes. In the simulation below, halving the gap between the
 bounds took between three and four times the pairs. It ran 300 tests a row of
-the normalized test with mache's own code, judged every 250 pairs as with the
-workflow's default batch. The pair scores were drawn from a distribution in
+the normalized test with mache's own code, at the default error rates of five
+percent each, judged every 250 pairs as with the workflow's default batch. The pair scores were drawn from a distribution in
 which three pairs in five score one point, shifted to each true difference:
 
 | bounds (normalized elo) | true difference at a bound | true difference halfway between |
@@ -220,6 +220,15 @@ match-estimate strength-1-1-shard-*/games.pgn \
 ```
 SPRT [0, 10] inconclusive. The log likelihood ratio over the 150 pairs of the test (75 from this batch and 75 from the batches before it) is 2.64 against bounds of (-2.94, 2.94). Over all of them the difference is +56 ±26 elo, which is the figure the trailer carries. The games so far settle it neither way. Launch another batch with prior_pairs set to 4,18,72,38,18.
 ```
+
+`--alpha` and `--beta` are the chances of a wrong pass and a wrong fail the test
+accepts, five percent each unless given. They set Wald's bounds, which are
+(-2.94, 2.94) at the defaults and (-4.60, 4.60) at one percent each, so
+stricter rates take more pairs to settle a test. A verdict reached at other
+rates names them wherever it is quoted, as in
+`SPRT [0, 10] alpha=0.01 beta=0.01 passed`. Give every batch of one test the
+same rates, since they are what the bounds were drawn at.
+`actions/summarise-match` takes them as `alpha` and `beta`.
 
 Three flags each replace the whole report. `--line` prints what release notes
 carry:

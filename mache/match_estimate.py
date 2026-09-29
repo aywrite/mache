@@ -25,7 +25,8 @@ chosen in advance and nothing is looked at until they are all in. The pairs of
 the batch are added to the pairs the earlier batches of the same test played,
 and the log likelihood ratio over all of them is judged against Wald's bounds.
 Looking only at batch boundaries is what leaves the bounds meaning what they
-say.
+say. `--alpha` and `--beta` set the error rates the bounds are drawn at, five
+percent each by default.
 
 The report goes to stdout for the run summary. `--line` prints the one line the
 release notes carry and `--trailer` the trailer a commit does. `--json` prints
@@ -79,13 +80,16 @@ PENTANOMIAL = (0.0, 0.5, 1.0, 1.5, 2.0)
 # the sequential test weighs
 PAIR = tuple(score / 2 for score in PENTANOMIAL)
 
-# The error rates the sprt verdicts are accepted at: a wrong "passed" one run
-# in twenty, a wrong "failed" the same. They are what the verdicts mean, so
-# they are fixed here rather than asked for.
+# The error rates an sprt verdict is accepted at unless the caller asks for
+# others: a wrong "passed" one test in twenty, a wrong "failed" the same. They
+# are what a verdict means, so a verdict reached at any other rates names them.
 ALPHA = BETA = 0.05
 # Wald's bounds on the log likelihood ratio at those rates, -2.94 and +2.94
 LOWER = math.log(BETA / (1 - ALPHA))
 UPPER = math.log((1 - BETA) / ALPHA)
+# An error rate is the chance of a wrong verdict, so it is above nought, and at
+# a half or more the test does no better than tossing a coin for it.
+MAX_RATE = 0.5
 # a count of nought has no logarithm, so it is nudged off nought first, which
 # is what fastchess does with the same counts
 REGULARISED = 1e-3
@@ -700,7 +704,11 @@ class Sprt:
     The model says what the hypotheses are differences in: logistic elo, or
     normalized elo. The counts are the same under either, so a test could be
     carried on under the other model, but the error rates hold only for a
-    test judged under the one it started with."""
+    test judged under the one it started with.
+
+    The same goes for alpha and beta, the chances of a wrong "passed" and a
+    wrong "failed". They set where the bounds are, so a test carried on at
+    other rates is being judged against other bounds part way through."""
 
     def __init__(
         self,
@@ -709,10 +717,19 @@ class Sprt:
         elo1: float,
         prior: list[int] | None = None,
         model: str = "logistic",
+        alpha: float = ALPHA,
+        beta: float = BETA,
     ):
         if model not in MODELS:
             raise ValueError(f"the model is one of {', '.join(MODELS)}, not {model}")
+        for name, rate in (("alpha", alpha), ("beta", beta)):
+            if not 0 < rate < MAX_RATE:
+                raise ValueError(f"{name} is between 0 and {MAX_RATE:g}, not {rate:g}")
         self.elo0, self.elo1, self.model = elo0, elo1, model
+        self.alpha, self.beta = alpha, beta
+        # Wald's bounds at these rates
+        self.lower = math.log(beta / (1 - alpha))
+        self.upper = math.log((1 - beta) / alpha)
         counted = Counter(pairs)
         self.batch = [counted[score] for score in PENTANOMIAL]
         self.prior = list(prior) if prior else [0] * len(PENTANOMIAL)
@@ -726,9 +743,9 @@ class Sprt:
             if sum(self.counts)
             else 0.0
         )
-        if self.llr >= UPPER:
+        if self.llr >= self.upper:
             self.verdict = "passed"
-        elif self.llr <= LOWER:
+        elif self.llr <= self.lower:
             self.verdict = "failed"
         else:
             self.verdict = "inconclusive"
@@ -739,7 +756,16 @@ class Sprt:
         # there was a choice, so it stays as it was and the normalized one
         # names itself
         unit = " nElo" if self.model == "normalized" else ""
-        return f"[{number(self.elo0)}, {number(self.elo1)}]{unit}"
+        return f"[{number(self.elo0)}, {number(self.elo1)}]{unit}{self.rates}"
+
+    @property
+    def rates(self) -> str:
+        """The error rates, where they are not the defaults. A verdict at the
+        defaults reads as it always has, and one at any other rates says so
+        wherever it is quoted."""
+        if (self.alpha, self.beta) == (ALPHA, BETA):
+            return ""
+        return f" alpha={self.alpha:g} beta={self.beta:g}"
 
     @property
     def unit(self) -> str:
@@ -748,7 +774,7 @@ class Sprt:
 
     @property
     def bounds(self) -> str:
-        return f"({number(LOWER)}, {number(UPPER)})"
+        return f"({number(self.lower)}, {number(self.upper)})"
 
     @property
     def estimate(self) -> Estimate:
@@ -778,28 +804,49 @@ class Sprt:
         )
 
 
+def percent(rate: float) -> str:
+    # :g rather than a fixed precision, so that 0.05 reads as 5 and 0.025 as 2.5
+    return f"{rate * 100:g} percent"
+
+
 def sequential(sprt: Sprt) -> str:
     """The sprt reading for the report, and what its verdict means."""
+    if sprt.alpha == sprt.beta:
+        rates = f"at a {percent(sprt.alpha)} error rate each way"
+    else:
+        rates = (
+            f"at error rates of {percent(sprt.alpha)} for a wrong pass and"
+            f" {percent(sprt.beta)} for a wrong fail"
+        )
+    # what the next batch has to be given besides the counts, so that it is
+    # judged the way this one was
+    again = []
+    if sprt.model == "normalized":
+        again.append("the normalized model")
+    if sprt.rates:
+        # named once already, where the paragraph opens with the hypotheses
+        again.append("the same alpha and beta")
     means = {
         "passed": (
             f"The pairs favour a difference of about {number(sprt.elo1)}"
-            f" {sprt.unit} over one of about {number(sprt.elo0)}, at a five"
-            " percent error rate each way. That is the hypothesis the test prefers and not a"
-            " floor under the difference: the estimate above is what the games"
-            " measured."
+            f" {sprt.unit} over one of about {number(sprt.elo0)}, {rates}."
+            " That is the hypothesis the test prefers and not a floor under the"
+            " difference: the estimate above is what the games measured."
         ),
         "failed": (
             f"The pairs favour a difference of about {number(sprt.elo0)}"
-            f" {sprt.unit} over one of about {number(sprt.elo1)}, at a five"
-            " percent error rate each way. That does not show the candidate is weaker, only"
-            " that the games did not favour the larger difference."
+            f" {sprt.unit} over one of about {number(sprt.elo1)}, {rates}."
+            " That does not show the candidate is weaker, only that the games did"
+            " not favour the larger difference."
         ),
         "inconclusive": (
             "The games so far settle it neither way. Launch another batch with"
             f" prior_pairs set to {sprt.carried}"
             + (
-                " and the normalized model again."
-                if sprt.model == "normalized"
+                f" and {again[0]} again."
+                if len(again) == 1
+                else f", {' and '.join(again)} again."
+                if again
                 else "."
             )
         ),
@@ -1101,8 +1148,10 @@ def as_json(
             "elo0": sprt.elo0,
             "elo1": sprt.elo1,
             "llr": sprt.llr,
-            "lower": LOWER,
-            "upper": UPPER,
+            "alpha": sprt.alpha,
+            "beta": sprt.beta,
+            "lower": sprt.lower,
+            "upper": sprt.upper,
             "verdict": sprt.verdict,
             "batch": sprt.batch,
             "prior": sprt.prior,
@@ -1177,6 +1226,16 @@ def main() -> None:
         help="what --elo0 and --elo1 are differences in: logistic elo, the"
         " default, or normalized elo",
     )
+    parser.add_argument(
+        "--alpha",
+        type=float,
+        help=f"the chance of a wrong pass the sprt accepts, {ALPHA:g} by default",
+    )
+    parser.add_argument(
+        "--beta",
+        type=float,
+        help=f"the chance of a wrong fail the sprt accepts, {BETA:g} by default",
+    )
     printed = parser.add_mutually_exclusive_group()
     printed.add_argument(
         "--line",
@@ -1207,6 +1266,13 @@ def main() -> None:
         parser.error("--model says what an sprt's bounds are in, so it wants --elo0")
     if args.elo0 is None and any(prior):
         parser.error("--prior-pairs carries a test on, so it wants --elo0 and --elo1")
+    for name, rate in (("--alpha", args.alpha), ("--beta", args.beta)):
+        if rate is None:
+            continue
+        if args.elo0 is None:
+            parser.error(f"{name} is an error rate of an sprt, so it wants --elo0")
+        if not 0 < rate < MAX_RATE:
+            parser.error(f"{name} is between 0 and {MAX_RATE:g}, not {rate:g}")
     if args.elo0 is not None:
         cap = MAX_NORMALIZED if args.model == "normalized" else MAX_HYPOTHESIS
         for name, elo in (("--elo0", args.elo0), ("--elo1", args.elo1)):
@@ -1229,7 +1295,15 @@ def main() -> None:
     estimate = Estimate(sum(games), len(games), pairs)
     try:
         sprt = (
-            Sprt(pairs, args.elo0, args.elo1, prior, args.model)
+            Sprt(
+                pairs,
+                args.elo0,
+                args.elo1,
+                prior,
+                args.model,
+                ALPHA if args.alpha is None else args.alpha,
+                BETA if args.beta is None else args.beta,
+            )
             if args.elo0 is not None
             else None
         )

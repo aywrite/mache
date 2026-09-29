@@ -736,6 +736,149 @@ class TestSequential:
         assert "That does not show the candidate is weaker" in printed
 
 
+class TestErrorRates:
+    """Alpha and beta, the chances of a wrong pass and a wrong fail.
+
+    They move Wald's bounds and nothing else: the ratio is the same whatever
+    they are, so the same pairs can pass at one pair of rates and settle
+    nothing at a stricter one. A verdict at the defaults reads as it did before
+    the rates could be asked for, and one at any other rates names them
+    wherever it is quoted, since a pass at one in five is not a pass at one in
+    twenty."""
+
+    # a ratio of about 3.40 over [0, 10], between the bounds at five percent
+    # (2.94) and at one percent (4.60)
+    COUNTS = (0, 0, 100, 0, 20)
+
+    def test_the_bounds_are_walds_at_the_rates_asked_for(self):
+        for alpha, beta in ((0.05, 0.05), (0.01, 0.01), (0.2, 0.01), (0.01, 0.1)):
+            sprt = match_estimate.Sprt([], 0, 10, alpha=alpha, beta=beta)
+            assert math.isclose(sprt.lower, math.log(beta / (1 - alpha)))
+            assert math.isclose(sprt.upper, math.log((1 - beta) / alpha))
+
+    def test_the_defaults_are_the_bounds_the_verdicts_always_had(self):
+        sprt = match_estimate.Sprt([], 0, 10)
+        assert (sprt.alpha, sprt.beta) == (0.05, 0.05)
+        assert sprt.bounds == "(-2.94, 2.94)"
+        assert sprt.rates == ""
+
+    def test_stricter_rates_can_leave_a_pass_unsettled(self):
+        default = match_estimate.Sprt([], 0, 10, self.COUNTS)
+        strict = match_estimate.Sprt([], 0, 10, self.COUNTS, alpha=0.01, beta=0.01)
+        assert default.llr == strict.llr
+        assert default.verdict == "passed"
+        assert strict.verdict == "inconclusive"
+        assert strict.bounds == "(-4.60, 4.60)"
+
+    def test_the_rates_can_differ(self):
+        # a loose alpha brings the upper bound in and a tight beta pushes the
+        # lower one out, so the two are not mirror images
+        sprt = match_estimate.Sprt([], 0, 10, alpha=0.2, beta=0.01)
+        assert sprt.bounds == "(-4.38, 1.60)"
+
+    @pytest.mark.parametrize("rate", [0, -0.1, 0.5, 0.9, math.nan])
+    def test_a_rate_that_is_not_a_chance_of_a_wrong_verdict_is_refused(self, rate):
+        with pytest.raises(ValueError):
+            match_estimate.Sprt([], 0, 10, alpha=rate)
+        with pytest.raises(ValueError):
+            match_estimate.Sprt([], 0, 10, beta=rate)
+
+    def test_every_form_names_rates_that_are_not_the_defaults(self, tmp_path):
+        arguments = ("--elo0", "0", "--elo1", "10", "--alpha", "0.01")
+        arguments += ("--beta", "0.01")
+        run = TestCommandLine().run
+        line = run(tmp_path / "a", [batch(self.COUNTS)], *arguments, "--line")
+        assert line.returncode == 0, line.stderr
+        assert "SPRT [0, 10] alpha=0.01 beta=0.01 inconclusive" in line.stdout
+        assert "(-4.60, 4.60)" in line.stdout
+        trailer = run(tmp_path / "b", [batch(self.COUNTS)], *arguments, "--trailer")
+        assert "sprt [0, 10] alpha=0.01 beta=0.01 inconclusive" in trailer.stdout
+        report = run(tmp_path / "c", [batch(self.COUNTS)], *arguments).stdout
+        assert "SPRT [0, 10] alpha=0.01 beta=0.01 inconclusive." in report
+        assert "against bounds of (-4.60, 4.60)" in report
+        assert "and the same alpha and beta again." in report
+
+    def test_the_defaults_are_not_named(self, tmp_path):
+        result = TestCommandLine().run(
+            tmp_path, [batch(self.COUNTS)], "--elo0", "0", "--elo1", "10", "--line"
+        )
+        assert "SPRT [0, 10] passed, LLR 3.40 (-2.94, 2.94)" in result.stdout
+        assert "alpha" not in result.stdout
+
+    def test_asking_for_the_defaults_reads_as_leaving_them_out(self, tmp_path):
+        run = TestCommandLine().run
+        base = ("--elo0", "0", "--elo1", "10", "--line")
+        left_out = run(tmp_path / "a", [batch(self.COUNTS)], *base).stdout
+        asked = run(
+            tmp_path / "b", [batch(self.COUNTS)], *base, "--alpha", "0.05"
+        ).stdout
+        assert left_out == asked
+
+    def test_a_verdict_says_the_rates_it_was_reached_at(self, tmp_path):
+        shards, estimate, text = pooled(tmp_path, [drawn(1) + pair(2)])
+        pairs = [score for one in shards for score in one.pairs]
+        passed = match_estimate.report(
+            shards,
+            estimate,
+            text,
+            match_estimate.Sprt(pairs, 0, 10, self.COUNTS, alpha=0.2, beta=0.01),
+        )
+        assert "SPRT [0, 10] alpha=0.2 beta=0.01 passed." in passed
+        assert (
+            "at error rates of 20 percent for a wrong pass and 1 percent for a"
+            " wrong fail." in passed
+        )
+        default = match_estimate.report(
+            shards, estimate, text, match_estimate.Sprt(pairs, 0, 10, self.COUNTS)
+        )
+        assert "at a 5 percent error rate each way." in default
+
+    def test_a_normalized_test_at_other_rates_asks_for_both_again(self, tmp_path):
+        shards, estimate, text = pooled(tmp_path, [drawn(1) + pair(2)])
+        pairs = [score for one in shards for score in one.pairs]
+        printed = match_estimate.report(
+            shards,
+            estimate,
+            text,
+            match_estimate.Sprt(pairs, 0, 5, None, "normalized", 0.01, 0.01),
+        )
+        assert ", the normalized model and the same alpha and beta again." in printed
+
+    @pytest.mark.parametrize("flag", ["--alpha", "--beta"])
+    def test_a_rate_wants_a_test(self, tmp_path, flag):
+        result = TestCommandLine().run(tmp_path, [drawn(1)], flag, "0.01")
+        assert result.returncode != 0
+        assert "so it wants --elo0" in result.stderr
+
+    @pytest.mark.parametrize("flag", ["--alpha", "--beta"])
+    @pytest.mark.parametrize("rate", ["0", "0.5", "-0.01", "nan"])
+    def test_a_rate_outside_nought_and_a_half_is_refused(self, tmp_path, flag, rate):
+        result = TestCommandLine().run(
+            tmp_path, [drawn(1)], "--elo0", "0", "--elo1", "10", flag, rate
+        )
+        assert result.returncode != 0
+        assert "is between 0 and 0.5" in result.stderr
+        assert "Traceback" not in result.stderr
+
+    def test_the_json_carries_the_rates_and_the_bounds_they_gave(self, tmp_path):
+        written = TestJson().loaded(
+            tmp_path,
+            [batch(self.COUNTS)],
+            "--elo0",
+            "0",
+            "--elo1",
+            "10",
+            "--alpha",
+            "0.2",
+            "--beta",
+            "0.01",
+        )
+        sprt = written["sprt"]
+        assert (sprt["alpha"], sprt["beta"]) == (0.2, 0.01)
+        assert math.isclose(sprt["lower"], math.log(0.01 / 0.8))
+        assert math.isclose(sprt["upper"], math.log(0.99 / 0.2))
+
+
 class TestNormalized:
     """The difference in normalized elo, pinned against what the pinned
     fastchess works out for the same pairs.

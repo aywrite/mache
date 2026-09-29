@@ -48,6 +48,14 @@ inputs:
       What elo0 and elo1 are differences in: `logistic` elo, or `normalized`
       elo. Every batch of one test is judged under the same one.
     default: logistic
+  alpha:
+    description: >
+      The chance of a wrong pass the test accepts. Every batch of one test is
+      judged at the same rates, since they set where the bounds are.
+    default: "0.05"
+  beta:
+    description: The chance of a wrong fail the test accepts.
+    default: "0.05"
   provenance:
     description: >
       One paragraph from the caller saying where the games are kept and what
@@ -90,6 +98,8 @@ runs:
         ELO1: ${{ inputs.elo1 }}
         PRIOR_PAIRS: ${{ inputs.prior_pairs }}
         SPRT_MODEL: ${{ inputs.sprt_model }}
+        SPRT_ALPHA: ${{ inputs.alpha }}
+        SPRT_BETA: ${{ inputs.beta }}
         PROVENANCE: ${{ inputs.provenance }}
       run: |
         # the report itself goes to the log, so this is not redirected. The

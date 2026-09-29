@@ -159,7 +159,7 @@ def games(tmp_path):
     return tmp_path, stub
 
 
-def summarise(root, stub, outputs, sprt="false", model=None):
+def summarise(root, stub, outputs, sprt="false", model=None, rates=None):
     return subprocess.run(
         [str(SUMMARISE), "shards", str(outputs)],
         cwd=root,
@@ -180,6 +180,9 @@ def summarise(root, stub, outputs, sprt="false", model=None):
             "ELO1": "5",
             "PRIOR_PAIRS": "",
             **({} if model is None else {"SPRT_MODEL": model}),
+            **(
+                {} if rates is None else {"SPRT_ALPHA": rates[0], "SPRT_BETA": rates[1]}
+            ),
             "PROVENANCE": "",
             "GITHUB_STEP_SUMMARY": str(root / "step_summary"),
             "GITHUB_RUN_ATTEMPT": "1",
@@ -288,6 +291,34 @@ class TestSummarisingAMatch:
         assert result.returncode == 0, result.stderr
         for asked in (root / "asked").read_text().splitlines():
             assert f"--model {expected}" in asked, asked
+
+    @pytest.mark.parametrize(
+        "rates,expected",
+        [(None, ("0.05", "0.05")), (("0.01", "0.1"), ("0.01", "0.1"))],
+    )
+    def test_the_error_rates_reach_the_estimate(self, games, rates, expected):
+        # unset rates are the five percent a caller had before the choice
+        root, stub = games
+        executable(
+            stub / "python3",
+            f"""
+            if [ "$1" = "-m" ] && [ "$2" = "mache.match_estimate" ]; then
+                echo "$@" >> {root / "asked"}
+                for argument in "$@"; do
+                    [ "$argument" = "--json" ] && echo '{{"sprt": null}}' && exit 0
+                done
+                echo "+3 ±2 Elo (200 games)"
+                exit 0
+            fi
+            exec /usr/bin/python3 "$@"
+        """,
+        )
+        outputs = root / "outputs"
+        result = summarise(root, stub, outputs, sprt="true", rates=rates)
+        assert result.returncode == 0, result.stderr
+        alpha, beta = expected
+        for asked in (root / "asked").read_text().splitlines():
+            assert f"--alpha {alpha} --beta {beta}" in asked, asked
 
     def test_no_shard_uploaded_any_games_is_an_error(self, games):
         root, stub = games

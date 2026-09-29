@@ -7,9 +7,10 @@
 #     summarise.sh <games-dir> <outputs-file>
 #
 # The caller sets CANDIDATE, CANDIDATE_SHA, BASELINE, BASELINE_SHA, SHARDS,
-# TIME_CONTROL, SPRT, ELO0, ELO1, PRIOR_PAIRS, SPRT_MODEL and PROVENANCE. An
-# unset SPRT_MODEL is the logistic model, which is what a caller got before
-# there was a choice.
+# TIME_CONTROL, SPRT, ELO0, ELO1, PRIOR_PAIRS, SPRT_MODEL, SPRT_ALPHA,
+# SPRT_BETA and PROVENANCE. An unset SPRT_MODEL is the logistic model, and an
+# unset rate is five percent, which is what a caller got before there was a
+# choice.
 #
 # Writes report.md, and writes the `key=value` lines the caller wants into
 # <outputs-file>. The report goes to stdout, so it is in the job's log as well
@@ -47,7 +48,8 @@ estimate=(python3 -m mache.match_estimate "${games[@]}"
           --tc "$TIME_CONTROL")
 if [ "$SPRT" = "true" ]; then
     estimate+=(--elo0 "$ELO0" --elo1 "$ELO1" --prior-pairs "$PRIOR_PAIRS"
-               --model "${SPRT_MODEL:-logistic}")
+               --model "${SPRT_MODEL:-logistic}"
+               --alpha "${SPRT_ALPHA:-0.05}" --beta "${SPRT_BETA:-0.05}")
 fi
 
 # Named for what writes it. The caller redirects this script's own stderr into
