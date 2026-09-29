@@ -12,6 +12,9 @@ one sequential test (SPRT). A repository calls it from a workflow of its own,
 on its pull requests or by hand, and the result goes in the run's summary.
 fastchess plays the games.
 
+To set one up in your engine's repository, start with
+[the quickstart](docs/QUICKSTART.md).
+
 It suits an engine whose changes are still large enough to show within a few
 thousand games. A small change can take many runs to settle, and
 [What hosted runners can measure](https://github.com/aywrite/mache#what-hosted-runners-can-measure)

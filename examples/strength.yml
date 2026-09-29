@@ -1,0 +1,30 @@
+# A strength match you run by hand from the Actions tab. Copy it to
+# .github/workflows/strength.yml, and build_at.sh to scripts/build_at.sh.
+name: Strength
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate:
+        description: Branch, tag, commit or pull request number to test
+        type: string
+      baseline:
+        description: What to measure it against. The last release if empty
+        type: string
+      games:
+        type: number
+        default: 500
+
+# strength.yml asks for no more than this itself. It keeps anything you add
+# to this file read-only too.
+permissions:
+  contents: read
+
+jobs:
+  match:
+    uses: aywrite/mache/.github/workflows/strength.yml@v0.6.0
+    with:
+      build: scripts/build_at.sh
+      candidate: ${{ inputs.candidate }}
+      baseline: ${{ inputs.baseline }}
+      games: ${{ inputs.games }}

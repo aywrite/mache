@@ -19,7 +19,7 @@ permissions:
   contents: read
 jobs:
   match:
-    uses: aywrite/mache/.github/workflows/strength.yml@v0.3.0
+    uses: aywrite/mache/.github/workflows/strength.yml@v0.6.0
     with:
       build: scripts/build_at.sh
       candidate: ${{ inputs.candidate }}

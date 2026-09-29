@@ -32,14 +32,16 @@ for an hour, every game is between two copies of one program, and the report
 says zero elo with no interval wide enough to look wrong. Nothing fails. There
 is no log line. The only sign is a result that is suspiciously close to nothing.
 
-`git archive` stamps at extraction time by default, and `tar -xm` keeps that
-behaviour on the way out, so the plain form is the right one:
+`git archive` writes the commit's time into the archive, and a plain `tar -x`
+puts it back on every file. `-m` is what stops that, so the files are stamped
+with the time they were extracted:
 
 ```bash
 git archive "$sha" | tar -xm -C "$export"
 ```
 
-What to avoid is anything that restores the commit's timestamps onto the export.
+Without the `-m` the export is stamped with the commit's time, which is the
+case above.
 
 ## The rest of it
 

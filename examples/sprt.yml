@@ -1,0 +1,35 @@
+# A sequential test (SPRT) you run by hand from the Actions tab. It plays up
+# to four batches of 500 games and stops as soon as one settles the test. If
+# none does, the summary gives you five numbers to paste into prior_pairs next
+# time.
+name: SPRT
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate:
+        description: Branch, tag, commit or pull request number to test
+        type: string
+      baseline:
+        description: What to measure it against. The last release if empty
+        type: string
+      prior_pairs:
+        description: Pair counts carried from an earlier run. Empty to start a test
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    uses: aywrite/mache/.github/workflows/strength.yml@v0.6.0
+    with:
+      build: scripts/build_at.sh
+      candidate: ${{ inputs.candidate }}
+      baseline: ${{ inputs.baseline }}
+      sprt: true
+      elo0: 0
+      elo1: 10
+      games: 500
+      batches: 4
+      prior_pairs: ${{ inputs.prior_pairs }}

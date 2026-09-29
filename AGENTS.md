@@ -39,6 +39,9 @@ on it: the reusable workflows pin the actions beside them, those pins have to
 name the version being released, and `GITHUB_TOKEN` may not write under
 `.github/workflows/`, so the workflow cannot move them itself.
 `.github/workflows/README.md` says what the pins are.
+The calls shown in `examples/`, `docs/QUICKSTART.md` and
+`.github/workflows/README.md` name the same version and move in the same
+commit. `tests/test_examples.py` holds them to it.
 Merging that pull request tags `vX.Y.Z` on
 the commit that carries the version and starts the release, which refuses a tag
 that does not match `__version__`, builds the sdist and the wheel, publishes
