@@ -140,6 +140,49 @@ jobs:
           python3 -c 'from mache import match_estimate, rating_estimate'
           test "$REPORTED" = "$(python3 -c 'import mache; print(mache.__version__)')"
 
+  root:
+    # The action at the root, which the Marketplace lists, called the way a
+    # caller calls it: games already on the runner, found by a pattern, and
+    # nothing set up first. The runner's own python3 is all it needs.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Lay the games out as two downloaded shards
+        run: |
+          for shard in 0 1; do
+            mkdir -p "downloaded/shard-${shard}"
+            cp tests/fixtures/pairs.pgn "downloaded/shard-${shard}/games.pgn"
+          done
+
+      - uses: ./ # zizmor: ignore[self-repository]
+        id: estimate
+        with:
+          pgn: downloaded/**/games.pgn
+          candidate: new
+          baseline: old
+          time_control: 10+0.1
+          sprt: true
+
+      - name: It read both shards and judged the test
+        env:
+          LINE: ${{ steps.estimate.outputs.line }}
+          VERDICT: ${{ steps.estimate.outputs.verdict }}
+          CARRIED: ${{ steps.estimate.outputs.carried }}
+        run: |
+          case "$LINE" in
+            *"(52 games), SPRT [0, 10] "*) ;;
+            *) echo "::error::the line reads ${LINE}"; exit 1 ;;
+          esac
+          test "$VERDICT" = inconclusive
+          test "$CARRIED" = 2,4,12,6,2
+
   orchestration:
     # The actions a caller runs before anything is built. Each is checked
     # through its outputs, because outputs are the part a workflow author

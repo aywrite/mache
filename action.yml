@@ -1,0 +1,112 @@
+# The action GitHub Marketplace lists. It reads fastchess games that are
+# already on the runner and pools them into one estimate or one sequential
+# test, so it suits a caller that plays its own matches. A caller that wants
+# the match played as well calls the reusable workflows or the actions under
+# actions/, which this does not replace.
+#
+# It runs the package from this action's own checkout rather than from a pin,
+# so the version a caller names is the version that reads the games.
+
+name: Chess engine elo and SPRT (mache)
+description: >
+  Pool fastchess games into one elo estimate or one sequential test (SPRT),
+  and put the report in the job summary.
+author: Andrew Wright
+branding:
+  icon: bar-chart-2
+  color: blue
+
+inputs:
+  pgn:
+    description: >
+      The pgn files to read, as paths or glob patterns separated by spaces or
+      new lines. Each file is one shard, named in the report after the
+      directory it is in. `**` reaches into directories.
+    required: true
+  candidate:
+    description: >
+      The engine being measured, as the pgn names it. Only games it played are
+      read.
+    required: true
+  baseline:
+    description: What it played against. Recorded in the report and the trailer.
+    required: true
+  time_control:
+    description: The time control played, recorded in the report and the trailer.
+    default: ""
+  sprt:
+    description: Whether to judge a sequential test over the pooled pairs.
+    default: "false"
+  elo0:
+    description: The null hypothesis the test is against.
+    default: "0"
+  elo1:
+    description: The alternative hypothesis the test is against.
+    default: "10"
+  sprt_model:
+    description: >
+      What elo0 and elo1 are differences in: `logistic` elo, or `normalized`
+      elo. Every batch of one test is judged under the same one.
+    default: logistic
+  alpha:
+    description: The chance of a wrong pass the test accepts.
+    default: "0.05"
+  beta:
+    description: The chance of a wrong fail the test accepts.
+    default: "0.05"
+  prior_pairs:
+    description: >
+      The pair counts of the batches already played, from an earlier run's
+      `carried` output. Empty to start a test.
+    default: ""
+
+outputs:
+  line:
+    description: The estimate and any verdict as one line, for release notes.
+    value: ${{ steps.estimate.outputs.line }}
+  trailer:
+    description: The same as a commit trailer.
+    value: ${{ steps.estimate.outputs.trailer }}
+  verdict:
+    description: >
+      What the sequential test came to: `passed`, `failed` or `inconclusive`.
+      Empty when there was no test.
+    value: ${{ steps.estimate.outputs.verdict }}
+  carried:
+    description: >
+      The pair counts of the whole test so far, to hand the next run as
+      `prior_pairs`. Empty when there was no test.
+    value: ${{ steps.estimate.outputs.carried }}
+
+runs:
+  using: composite
+  steps:
+    - name: Pool the games
+      id: estimate
+      shell: bash
+      env:
+        PGN: ${{ inputs.pgn }}
+        CANDIDATE: ${{ inputs.candidate }}
+        BASELINE: ${{ inputs.baseline }}
+        TIME_CONTROL: ${{ inputs.time_control }}
+        SPRT: ${{ inputs.sprt }}
+        ELO0: ${{ inputs.elo0 }}
+        ELO1: ${{ inputs.elo1 }}
+        SPRT_MODEL: ${{ inputs.sprt_model }}
+        SPRT_ALPHA: ${{ inputs.alpha }}
+        SPRT_BETA: ${{ inputs.beta }}
+        PRIOR_PAIRS: ${{ inputs.prior_pairs }}
+      run: |
+        # the package from this checkout of the action, and nothing installed
+        export PYTHONPATH="${GITHUB_ACTION_PATH}${PYTHONPATH:+:${PYTHONPATH}}"
+        read -ra patterns <<< "$(tr '\n' ' ' <<< "$PGN")"
+        outputs="${RUNNER_TEMP}/mache-estimate-outputs.txt"
+        remarks="${RUNNER_TEMP}/mache-estimate-remarks.txt"
+        "${GITHUB_ACTION_PATH}/bin/estimate.sh" "$outputs" "${patterns[@]}" \
+          2> "$remarks" \
+          || { echo "::error::$(head -1 "$remarks")"; cat "$remarks"; exit 1; }
+        while read -r remark; do
+          echo "::warning::${remark}"
+        done < "$remarks"
+        cat "$outputs" >> "$GITHUB_OUTPUT"
+        echo "::notice::$(sed -n 's/^line=//p' "$outputs")"
