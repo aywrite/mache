@@ -214,14 +214,14 @@ jobs:
             exit 1
           fi
 
-      - uses: aywrite/mache/actions/resolve-ref@v0.7.0
+      - uses: aywrite/mache/actions/resolve-ref@v0.7.1
         id: candidate
         with:
           ref: ${{ inputs.candidate }}
           label: candidate
           when_empty: head
 
-      - uses: aywrite/mache/actions/resolve-ref@v0.7.0
+      - uses: aywrite/mache/actions/resolve-ref@v0.7.1
         id: baseline
         with:
           ref: ${{ inputs.baseline }}
@@ -233,7 +233,7 @@ jobs:
         if: steps.baseline.outputs.sha == ''
         run: echo "::notice::No previous release to compare against, skipping"
 
-      - uses: aywrite/mache/actions/plan-shards@v0.7.0
+      - uses: aywrite/mache/actions/plan-shards@v0.7.1
         id: plan
         with:
           games: ${{ inputs.games }}
