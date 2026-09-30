@@ -24,7 +24,17 @@ dependencies = []
 # What PyPI's search and its project page read. The Python versions are the
 # two the tests run on, and no licence classifier is given because the licence
 # field above is the expression that says it.
-keywords = ["chess", "chess-engine", "elo", "sprt", "fastchess", "github-actions"]
+keywords = [
+    "chess",
+    "chess-engine",
+    "uci",
+    "elo",
+    "sprt",
+    "fastchess",
+    "engine-testing",
+    "github-actions",
+    "continuous-integration",
+]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -37,6 +47,8 @@ classifiers = [
 
 [project.urls]
 Homepage = "https://github.com/aywrite/mache"
+Documentation = "https://github.com/aywrite/mache/blob/main/docs/QUICKSTART.md"
+Issues = "https://github.com/aywrite/mache/issues"
 Changelog = "https://github.com/aywrite/mache/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]

@@ -1,9 +1,10 @@
-# mache
+# mache: chess engine testing on GitHub Actions
 
 [![Tests](https://github.com/aywrite/mache/actions/workflows/tests.yml/badge.svg)](https://github.com/aywrite/mache/actions/workflows/tests.yml)
 [![PyPI](https://img.shields.io/pypi/v/mache)](https://pypi.org/project/mache/)
 
-Chess engine testing on GitHub Actions, with no server to run.
+Sharded fastchess matches pooled into one elo estimate or SPRT, with no server
+to run.
 
 mache runs a match between two versions of an engine on the GitHub-hosted
 runners a repository already has. The match is split across jobs that run at
