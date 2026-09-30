@@ -82,3 +82,16 @@ So this does not say the job is unprivileged. A `workflow_dispatch` workflow
 that granted `contents: write` and passed a secret would pass it. That part is
 the workflow's to declare, and a caller should write `permissions: contents:
 read` at the top of any workflow that builds a ref.
+
+## In a private repository
+
+The workflows check out with `persist-credentials: false`, so the token is not
+left in `.git/config` for the build to find. That also means a later
+`git fetch` has nothing to authenticate with. A public repository answers it
+anyway and a private one refuses it.
+
+So in a private repository a ref resolves only if the checkout already has it:
+a tag, a commit on a branch or a tag, or a branch (the one the workflow runs
+on, or any other, which a full checkout keeps as `origin/<name>`). A pull
+request number does not, because its head is under `refs/pull/` and a checkout
+does not fetch that. Nor does a commit that is on no branch or tag.

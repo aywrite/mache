@@ -146,6 +146,55 @@ class TestWhatItResolves:
         assert resolve(repository, "v9.9.9").returncode != 0
 
 
+class TestAPrivateRepository:
+    """What resolves without asking the remote again.
+
+    The workflows check out with `persist-credentials: false`, so a later
+    fetch has no credentials. A public repository answers anyway and a private
+    one refuses. These tests clone the fixture the way a full checkout does
+    (every branch as `origin/<name>`, every tag, one branch checked out) and
+    then point `origin` somewhere nothing can be fetched from, which is where
+    a private repository leaves a job."""
+
+    @pytest.fixture
+    def checkout(self, repository, tmp_path):
+        remote, shas = repository
+        git(remote, "branch", "feature", shas["second"])
+        path = tmp_path / "checkout"
+        path.mkdir()
+        git(path, "init", "-q")
+        git(path, "remote", "add", "origin", str(remote))
+        git(
+            path,
+            "fetch",
+            "-q",
+            "origin",
+            "+refs/heads/*:refs/remotes/origin/*",
+            "+refs/tags/*:refs/tags/*",
+        )
+        git(path, "checkout", "-q", "-b", "main", "origin/main")
+        git(path, "remote", "set-url", "origin", str(tmp_path / "nowhere"))
+        return path, shas
+
+    def test_a_branch_that_is_not_checked_out_resolves(self, checkout):
+        name, sha = lines(resolve(checkout, "feature"))
+        assert name == "feature"
+        assert sha == checkout[1]["second"]
+
+    def test_a_tag_and_a_commit_still_resolve(self, checkout):
+        _, shas = checkout
+        assert lines(resolve(checkout, "v0.1.0"))[1] == shas["first"]
+        assert lines(resolve(checkout, shas["third"]))[1] == shas["third"]
+
+    def test_a_pull_request_still_has_to_be_fetched(self, checkout):
+        # its head is under refs/pull, which a checkout does not fetch
+        result = resolve(checkout, "7")
+        assert result.returncode != 0
+
+    def test_a_branch_nobody_pushed_still_fails(self, checkout):
+        assert resolve(checkout, "no-such-branch").returncode != 0
+
+
 class TestAnEmptyRef:
     def test_head_is_the_commit_the_workflow_runs_on(self, repository):
         name, sha = lines(

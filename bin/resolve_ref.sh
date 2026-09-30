@@ -44,5 +44,16 @@ if sha=$(git rev-parse --verify --quiet "${ref}^{commit}"); then
     exit 0
 fi
 
+# A branch other than the one the workflow runs on. A full checkout keeps every
+# branch, but as origin/<name> rather than under its own name, so the line
+# above misses it. Fetching it by name asks the remote again, which a private
+# repository refuses: the checkout keeps no credentials to ask with. Anything
+# still missing after this (a pull request head, a commit on no branch) has to
+# be fetched.
+if sha=$(git rev-parse --verify --quiet "refs/remotes/origin/${ref}^{commit}"); then
+    echo "$sha"
+    exit 0
+fi
+
 git fetch -q origin "$ref"
 git rev-parse FETCH_HEAD

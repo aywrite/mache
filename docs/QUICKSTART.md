@@ -13,7 +13,10 @@ runners and puts the result in the run summary.
 - if the repository belongs to an organisation, its Actions settings have to
   allow actions and reusable workflows from other repositories
 
-So far mache has only been run from public repositories.
+So far mache has only been run from public repositories. In a private one,
+stick to tags, commits and the branch you run from for now:
+[actions/resolve-ref](../actions/resolve-ref/README.md#in-a-private-repository)
+has why.
 
 ## 1. Build script
 
