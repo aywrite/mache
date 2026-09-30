@@ -14,16 +14,16 @@ on its pull requests or by hand, and the result goes in the run's summary.
 fastchess plays the games.
 
 To set one up in your engine's repository, start with
-[the quickstart](docs/QUICKSTART.md).
+[the quickstart](https://aywrite.github.io/mache/quickstart/).
 
 It suits an engine whose changes are still large enough to show within a few
 thousand games. A small change can take many runs to settle, and
-[What hosted runners can measure](https://github.com/aywrite/mache#what-hosted-runners-can-measure)
+[What hosted runners can measure](https://aywrite.github.io/mache/limits/)
 says how many.
 
 The tools that read the games also work without GitHub Actions, on pgn files
 fastchess wrote anywhere.
-[Running a match without CI](https://github.com/aywrite/mache#running-a-match-without-ci)
+[Running a match without CI](https://aywrite.github.io/mache/without-ci/)
 shows how.
 
 The name is from mache (μάχη), Greek for battle, and reads as Measure A CHess
@@ -52,7 +52,8 @@ Hosted runners are the point of mache and also what make it awkward. Their
 timing varies from one job to the next, and a job is stopped at a time limit,
 often long before a match worth reading has finished. So a match is split
 across jobs that run at once and pooled afterwards, which is most of what the
-tools below are for, and why they take the care described further down.
+tools below are for, and why they take the care
+[How it works](https://aywrite.github.io/mache/how-it-works/) describes.
 
 ## What is here
 
@@ -100,430 +101,41 @@ pass a table of its own. There is no build script among them, and
 `docs/BUILDING-A-REF.md` says why, along with the one trap a build step written
 for this has to avoid.
 
-## What hosted runners can measure
+## As one step
 
-A run of `strength.yml` with its defaults plays 500 games over five shards,
-which is 250 pairs. A sequential test given `batches: 4` plays up to four such
-batches in one run, 1,000 pairs. It stops early if a batch settles the test,
-and otherwise hands back the counts for the next run to carry on from.
+The action at the root of this repository reads games that are already on the
+runner. It suits a repository that plays its own matches and only wants them
+pooled:
 
-For an estimate on its own, the 95% margin in normalized elo, as mache works
-it out, depends only on the number of pairs:
-
-| pairs | margin |
-| ---: | ---: |
-| 250 | ±30 |
-| 1,000 | ±15 |
-| 4,000 | ±8 |
-
-The margin in logistic elo also depends on how the pairs scored, and so on
-how many games were drawn.
-
-A sequential test runs until the pairs settle it, and the closer its bounds,
-the longer that takes. In the simulation below, halving the gap between the
-bounds took between three and four times the pairs. It ran 300 tests a row of
-the normalized test with mache's own code, at the default error rates of five
-percent each, judged every 250 pairs as with the workflow's default batch. The pair scores were drawn from a distribution in
-which three pairs in five score one point, shifted to each true difference:
-
-| bounds (normalized elo) | true difference at a bound | true difference halfway between |
-| --- | ---: | ---: |
-| [0, 10] | about 4,000 pairs | about 7,000 pairs |
-| [0, 5] | about 13,000 to 14,000 pairs | about 26,000 pairs |
-
-Those are averages, and the spread around them is wide: about one test in ten
-ran to nearly twice the average or longer. At 1,000 pairs a run, the averages
-come to about four to seven runs for [0, 10] and about thirteen to twenty-six
-for [0, 5]. The normalized model is what `match-estimate --model normalized`
-uses, and what `strength.yml` and `actions/summarise-match` use when given
-`sprt_model: normalized`. Both default to logistic elo, so `strength.yml`'s
-default bounds of [0, 10] are not the first row above, and how long a logistic
-test runs depends on the draw rate as well as the bounds.
-
-How long a batch takes depends on the time control, the engines and the
-runner, so it is worth timing one before planning a test around it. A shard
-is stopped at `max_match_minutes`, 150 by default, and reports the games it
-finished by then.
-
-Both engines of a shard share one runner, so a slow runner slows both. An
-engine whose strength changes a lot with the time it is given loses more to a
-slow runner than one whose strength does not.
-
-GitHub does not charge for its standard hosted runners on public repositories.
-A private repository uses the Actions minutes its plan includes. GitHub's
-billing documentation has the current terms.
-
-## Using the tools
-
-`pip install mache` gives the four command names used below. Under the
-composite action nothing is installed, and the same tools are
-`python3 -m mache.<tool>` with underscores where the command name has hyphens.
-
-Each tool prints its report on stdout. Anything worth an alert goes to stderr
-instead, a fault or an unfinished game, so a workflow can raise it from there
-rather than reading it back out of the report.
-
-### `match-estimate`
-
-A shard is one pgn, written by one job of the run. fastchess plays it with
-`-repeat`, so a round is two games on one opening with the colours reversed,
-and `--candidate` and `--baseline` name the engines as fastchess named them.
-
-```
-match-estimate strength-1-1-shard-*/games.pgn \
-  --candidate new --baseline ce8b662 --tc 10+0.1
+```yaml
+- uses: aywrite/mache@v0.6.0
+  with:
+    pgn: shards/**/games.pgn
+    candidate: new
+    baseline: old
+    sprt: true
 ```
 
-```
-+56 ±37 Elo (150 games)
-
-75 pairs from 150 games. The 95% interval is +19 to +93 elo, and the likelihood of superiority is 99.9%. In normalized elo the difference is +85 ±56, which is the figure to compare across books and time controls.
-
-| pair score | 0 | 0.5 | 1 | 1.5 | 2 |
-| --- | --- | --- | --- | --- | --- |
-| pairs | 2 | 9 | 36 | 19 | 9 |
-
-| shard | games | score | faults |
-| --- | --- | --- | --- |
-| strength-1-1-shard-0 | 50 | 57.0% | 0 |
-| strength-1-1-shard-1 | 50 | 59.0% | 1 |
-| strength-1-1-shard-2 | 50 | 58.0% | 0 |
-| pooled | 150 | 58.0% | 1 |
-```
-
-The block `match-terminations` prints follows that, and the last line of the
-report names the version that read the games. `--tc` and `--baseline` are
-recorded rather than read, so a baseline that is not a release tag can go in as
-its sha.
-
-`--elo0` and `--elo1` read the same pairs a second way, as a sequential test:
-
-```
-match-estimate strength-1-1-shard-*/games.pgn \
-  --candidate new --baseline ce8b662 --tc 10+0.1 --elo0 0 --elo1 10
-```
-
-which puts this paragraph in the report:
-
-```
-SPRT [0, 10] inconclusive. The log likelihood ratio over the 75 pairs of the test (75 from this batch and 0 from the batches before it) is 1.32 against bounds of (-2.94, 2.94). The games so far settle it neither way. Launch another batch with prior_pairs set to 2,9,36,19,9.
-```
-
-The counts at the end of it are what the next batch carries in, so that the
-runs accumulate into one test:
-
-```
-match-estimate strength-1-1-shard-*/games.pgn \
-  --candidate new --baseline ce8b662 --tc 10+0.1 \
-  --elo0 0 --elo1 10 --prior-pairs 2,9,36,19,9
-```
-
-```
-SPRT [0, 10] inconclusive. The log likelihood ratio over the 150 pairs of the test (75 from this batch and 75 from the batches before it) is 2.64 against bounds of (-2.94, 2.94). Over all of them the difference is +56 ±26 elo, which is the figure the trailer carries. The games so far settle it neither way. Launch another batch with prior_pairs set to 4,18,72,38,18.
-```
-
-`--alpha` and `--beta` are the chances of a wrong pass and a wrong fail the test
-accepts, five percent each unless given. They set Wald's bounds, which are
-(-2.94, 2.94) at the defaults and (-4.60, 4.60) at one percent each, so
-stricter rates take more pairs to settle a test. A verdict reached at other
-rates names them wherever it is quoted, as in
-`SPRT [0, 10] alpha=0.01 beta=0.01 passed`. Give every batch of one test the
-same rates, since they are what the bounds were drawn at.
-`actions/summarise-match` takes them as `alpha` and `beta`.
-
-Three flags each replace the whole report. `--line` prints what release notes
-carry:
-
-```
-+56 ±37 Elo (150 games), SPRT [0, 10] inconclusive, LLR 1.32 (-2.94, 2.94)
-```
-
-`--trailer` prints what a commit carries:
-
-```
-Elo: +56 ±37 (sprt [0, 10] inconclusive, 150 games, 10+0.1, vs ce8b662)
-```
-
-`--json` prints all of it as data, for a reader that is not a person:
-
-```
-{
-  "format": 1,
-  "tool": {
-    "name": "mache",
-    "version": "0.1.0",
-    "command": "match_estimate"
-  },
-  "candidate": "new",
-  "baseline": "ce8b662",
-  "tc": "10+0.1",
-  "games": 150,
-  "pairs": 75,
-```
-
-`format` is which shape the object is in, and shape 1 is a contract from
-`0.1.0` on. Fields are added to it. None is removed and none is given a new
-meaning under the name it has, and a change that cannot be made that way
-raises the number. The rest of the object holds the pentanomial counts, the
-sequential test, a row per shard, the terminations, and the `line` and
-`trailer` strings above.
-
-### `rating-estimate`
-
-The ladder is one argument, `name:rating` per opponent separated by commas,
-with the names as the pgn spells them:
-
-```
-rating-estimate gauntlet.pgn arche-0.5 \
-  'stash-v33:1876,cheng-4.39:1932,supernova-2.1:1801,winter-0.7:1978'
-```
-
-```
-| opponent | ccrl | w-d-l | score | implies |
-| --- | --- | --- | --- | --- |
-| stash-v33 | 1876 | 12-6-12 | 50.0% | 1876 |
-| cheng-4.39 | 1932 | 9-7-14 | 41.7% | 1874 |
-| supernova-2.1 | 1801 | 16-5-9 | 61.7% | 1884 |
-| winter-0.7 | 1978 | 7-6-17 | 33.3% | 1858 |
-
-1873 ±56 (95%) on the ccrl blitz scale (120 games)
-
-Read by mache 0.1.0.
-```
-
-`--line` prints the estimate and nothing else. `--json` prints the fit, the
-ladder it was given and a record per opponent, in the same format 1.
-
-The figure is on the scale of the list the ratings were read off, and the
-line names it. That is `ccrl blitz` unless `--scale` says otherwise, so a
-ladder read off the 40/15 list is fitted with `--scale 'ccrl 40/15'`. The
-`summarise-gauntlet` action takes the same thing as its `scale` input.
-
-### `match-terminations`
-
-```
-match-terminations strength-1-1-shard-1/games.pgn
-```
-
-```
-games: 50
-normal: 49
-adjudication: 0
-time forfeit: 1 (new 1)
-disconnect: 0
-stall: 0
-abandoned: 0
-illegal move: 0
-unterminated: 0
-```
-
-Every ending is printed, zero included. The line about the one that ended by a
-fault goes to stderr beside the block. `--json` prints the same counts, with
-the engines an ending fell on as a mapping rather than as the sentence.
-
-### `book-slice`
-
-```
-book-slice --openings 34700 --pairs 250 --shards 5 --shard 3 --seed 7
-```
-
-```
-758
-```
-
-That number is one based, which is what fastchess's `start=` takes. Every
-shard of a run asks with the same `--openings`, `--pairs`, `--shards` and
-`--seed`, and its own `--shard`, so the slices are worked out from the run's
-own numbers and no two of them hold an opening in common.
-
-A sequential test pools its batches the same way it pools its shards, so the
-rule holds across them too, and `--batches` with `--batch` is how a caller
-says so. What is then reserved is the whole test rather than one batch of it,
-and a batch takes the slice after the batch before it. This matters where the
-batches are chained inside one run, because they share a seed: each reserving
-its own games alone would start every batch where the first one started, and
-the pooled estimate would count those positions twice with nothing failing.
-A caller that passes neither plays what an unbatched run plays.
-
-## Running a match without CI
-
-None of the four tools needs GitHub Actions. They read pgn files, or in
-`book-slice`'s case a few numbers, so they work on games played anywhere: on
-one machine, or on a few machines that each play part of a match.
-`pip install mache` gives the command names. fastchess and an opening book are
-yours to provide. In a clone of this repository,
-`bin/book_table.sh fetch 8moves_v3 .` downloads one of the two books the
-actions use and checks it against its recorded hash.
-
-Each machine plays a shard. `book-slice` says which opening a shard starts at,
-so that no two shards play the same one. Every shard asks with the same
-numbers and its own `--shard`:
-
-```
-openings=$(grep -c '^\[Event ' 8moves_v3.pgn)
-start=$(book-slice --openings "$openings" --pairs 100 --shards 2 --shard 0 --seed 7)
-```
-
-Then fastchess plays the shard. `-repeat` pairs the games as `match-estimate`
-expects. `-rounds` is the number of pairs and has to match `--pairs` above.
-`nodes=true` is what the report's table of clocks and nodes counts moves by,
-and `timeleft=true` gives its last column. Without them the table reads as
-zeros.
-
-```
-fastchess -engine name=new cmd=./new -engine name=old cmd=./old \
-  -each proto=uci tc=10+0.1 \
-  -openings file=8moves_v3.pgn format=pgn order=sequential start="$start" \
-  -rounds 100 -repeat -concurrency 2 \
-  -pgnout file=games.pgn nodes=true timeleft=true
-```
-
-fastchess adds to a `games.pgn` that is already there, so start each shard in
-an empty directory. A shard played twice into one file would be counted twice.
-
-With each shard's games in a directory of its own, one command pools them. The
-directory names become the rows of the shard table:
-
-```
-match-estimate shard-0/games.pgn shard-1/games.pgn \
-  --candidate new --baseline old --tc 10+0.1
-```
-
-`--elo0`, `--elo1`, `--prior-pairs` and `--model` run the sequential test here
-the same way they do in a workflow. A test played in several batches passes
-`--batches` and `--batch` to `book-slice` as well, so that a later batch does
-not replay an earlier one's openings.
-
-## The part that is not obvious
-
-A sharded match is not a long match cut up. Three things have to hold or the
-number it produces is wrong.
-
-**The estimate is over the pool.** fastchess prints one, but only for the
-games its own process played. With five shards that is a fifth of the
-evidence, and averaging five such figures is a different calculation.
-`match-estimate` reads the games themselves.
-
-**The error bar is over pairs, not games.** Under `-repeat` the two games of a
-round are one opening with the colours reversed, so they are one observation.
-Counting them as two understates the spread.
-
-**A sequential test looks only at batch boundaries.** A per-shard SPRT that
-stopped when its own games settled the question would be one look per shard at
-a bound priced for one, on a sample chosen by what it said. Here the shards
-play their slices out with nothing watching and the test is judged once over
-all of them. A run is one batch, and `--prior-pairs` carries its pairs into
-the next, so repeated runs accumulate into one test rather than several.
-
-Openings follow from a seed rather than a shuffle, so a schedule can be played
-again from what the run recorded.
-
-## The clocks and the search are in the report
-
-A match report carries what each side's clock and search did: moves thought
-about, nodes, time, nodes a second, and the tightest its clock ever got. The
-figures are per engine rather than per colour, since `-repeat` plays every
-opening both ways, and they pool across shards the way the estimate does.
-
-They are there because an elo figure does not say why. A result that is really
-one side being handed more time, or more nodes for the time, shows as a ratio
-away from one here and nowhere else in the report. A registration that says a
-surprising number is re-read against the clocks and the node counts is
-answered from this table.
-
-**It is in the report, and the report goes to the log and to the run's
-summary.** That is the point of putting it there rather than leaving it in the
-games: a later session reading back a run can reach a log, and may not be able
-to reach the artifacts. Book moves are left out of the counts, since the engine
-did not think about them, and still hold their place so the moves after them
-are attributed to the side that made them.
-
-## The test keeps no state
-
-mache stores nothing between runs. The pairs the earlier batches of a
-sequential test played are an argument: a run prints them at the end of its
-verdict and the next run is handed them back with `--prior-pairs`. That is a
-decision and not an omission.
-
-Carrying five numbers is the price. A caller that loses them has lost the test
-and has to start it again. `actions/summarise-match` hands them back as
-`carried`, beside the `verdict` that says whether another batch is wanted at
-all, so a caller writing its own job graph passes them on rather than a person
-retyping them between runs. What it buys is that a run says on its face
-what it was judged over, so a reader checks the count against the batches that
-were played rather than trusting a file nobody looked at. Stored state would
-also have to be one thing per test, and a tool that cannot see which test a run
-belongs to would be guessing at that.
-
-An accumulator that keeps the counts in an artifact is a later addition if
-anyone wants one. It is not missing by accident.
-
-## The version is in the output
-
-A change to the estimator can price the same games differently. So a report
-names the version that read them, `--json` carries it in its `tool` object, and
-the composite action hands the version on the path back as an output, for a
-caller to write into whatever it records about a run. A figure kept without it
-cannot be checked against the code that produced it.
-
-`--line` and `--trailer` are one line each and carry no version. They are
-quoted beside a report or a manifest that does.
-
-## Logistic and normalized elo
-
-The headline figure is logistic elo, read off the score with
-`-400 log10(1/p - 1)`. How far a given improvement moves the score depends on
-how often the games are drawn. The same change reads as fewer elo on a balanced
-book than on an unbalanced one, and fewer at a long time control than a short
-one, so two runs that differ in either are not comparable in it.
-
-The report also gives the difference in normalized elo, which is what fastchess
-prints as nElo. It is the score's distance from a half divided by the spread of
-the pairs, scaled so that a small difference in a match with no draws reads
-about the same in both. Because it measures how clearly the games separate the
-two sides, it compares across books and time controls better than logistic elo
-does, and its margin depends on the number of pairs alone. For the same pairs
-the figure here is the one fastchess prints. `--json` carries it as `nelo` and
-`nelo_margin`.
-
-The sequential test takes its bounds in either. `--model normalized` reads
-`--elo0` and `--elo1` as normalized elo, and the default, `--model logistic`,
-reads them as logistic elo as before. Under the normalized model the number of
-games a test needs to settle depends on the bounds, and much less than under
-the logistic model on the book or the time control, so the same bounds cost
-roughly the same whichever is played. A normalized test names itself as
-`SPRT [0, 5] nElo` in the report, the line and the trailer, and `--json`
-carries the model in its `sprt` object.
-
-Every batch of one test is judged under the model it started with. The pair
-counts carried between batches are the same under either, so nothing stops a
-caller changing it part way, but the error rates only hold for a test that did
-not. `strength.yml` and `actions/summarise-match` take it as `sprt_model`.
-
-The ratio under the normalized model fits, for each hypothesis, the
-distribution over the five pair scores that is likeliest to have produced the
-pairs while being that many of its own standard deviations from a half. It
-does that as a convex fit at each spread and a search over the spread, rather
-than by the fixed point iteration fastchess uses, which does not converge from
-every set of counts. Where both converge they agree. Hypotheses are limited to
-100 normalized elo either side of nought, which is wider than the bounds a test
-normally uses.
-
-## Reading a rating estimate
-
-`rating-estimate` holds every opponent at its published figure and fits the one
-free parameter, so the figure is the rating at which the expected score equals
-the score actually made.
-
-The `±` is a 95% interval and it describes the games and nothing else. Whether
-one rating can describe the results at all is asked separately: when the
-opponents disagree with each other by more than chance allows, a note says so,
-and the interval is an understatement rather than an estimate.
-
-**A placement against a published list carries a systematic error no number of
-games reduces.** The opponents earned their ratings on other hardware at
-slower time controls. Treat the figure as a placement worth about a hundred
-points either way, not as a rating.
+Every file the pattern matches is one shard. The report goes in the job
+summary, and `line`, `trailer`, `verdict` and `carried` come back as outputs.
+It needs `python3` 3.10 or newer, which GitHub's hosted Ubuntu runners have,
+and installs nothing. [`action.yml`](https://github.com/aywrite/mache/blob/main/action.yml)
+describes each input.
+
+## Documentation
+
+The documentation is at [aywrite.github.io/mache](https://aywrite.github.io/mache/):
+
+- [Quickstart](https://aywrite.github.io/mache/quickstart/), a match in your engine's
+  repository from the build script to a first run
+- [Using the tools](https://aywrite.github.io/mache/tools/), what each command prints
+- [Running a match without CI](https://aywrite.github.io/mache/without-ci/)
+- [What hosted runners can measure](https://aywrite.github.io/mache/limits/)
+- [How it works](https://aywrite.github.io/mache/how-it-works/), and why a sharded match is
+  pooled the way it is
+- [The statistics](https://aywrite.github.io/mache/statistics/), logistic and normalized elo
+  and reading a rating estimate
+- [Building an engine at a commit](https://aywrite.github.io/mache/building-a-ref/)
 
 ## Install
 

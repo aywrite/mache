@@ -160,6 +160,15 @@ def test_every_call_names_the_current_release(path):
         assert ref == f"v{version_here()}", f"{path.name} calls {workflow}@{ref}"
 
 
+def test_the_readme_calls_the_root_action_at_the_current_release():
+    # the action GitHub Marketplace lists, shown in the README the listing
+    # displays, so it moves with the other pins
+    text = (ROOT / "README.md").read_text("utf-8")
+    found = re.findall(r"uses: +aywrite/mache@(\S+)", text)
+    assert found, "the README shows no call of the root action"
+    assert set(found) == {f"v{version_here()}"}, found
+
+
 def test_the_quickstart_names_no_other_release():
     # the prose as well as the calls, so a sentence about what a release
     # takes is looked at again when the pins move. A tag with a suffix, such

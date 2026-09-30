@@ -39,9 +39,10 @@ on it: the reusable workflows pin the actions beside them, those pins have to
 name the version being released, and `GITHUB_TOKEN` may not write under
 `.github/workflows/`, so the workflow cannot move them itself.
 `.github/workflows/README.md` says what the pins are.
-The calls shown in `examples/`, `docs/QUICKSTART.md` and
-`.github/workflows/README.md` name the same version and move in the same
-commit. `tests/test_examples.py` holds them to it.
+The calls shown in `examples/`, `docs/QUICKSTART.md`,
+`.github/workflows/README.md` and the README's call of the root action name the
+same version and move in the same commit. `tests/test_examples.py` holds them to
+it.
 Merging that pull request tags `vX.Y.Z` on
 the commit that carries the version and starts the release, which refuses a tag
 that does not match `__version__`, builds the sdist and the wheel, publishes
@@ -60,6 +61,18 @@ and a tag that moved would leave two releases answering to one name.
 The `--json` shape is a contract from `0.1.0` on. `JSON_FORMAT` says which
 shape, fields are added and not removed, and a change that cannot be made that
 way raises the number.
+
+## The action at the root and the site
+
+`action.yml` at the root is the one GitHub Marketplace lists. It runs the
+package from its own checkout, so it has no pin to move. Whether a release is
+listed is set on the GitHub release itself, by its Marketplace checkbox.
+
+`docs/` is the site GitHub Pages builds, with Jekyll and the theme named in
+`docs/_config.yml`. Each page's address and place in the menu are set there
+rather than in front matter, which GitHub would show as a table when the file
+is read in the repository. A link out of `docs/` is written as a full URL,
+since the site has nothing above it. `tests/test_docs.py` checks both.
 
 ## What stays out of this repository
 

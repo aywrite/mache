@@ -15,7 +15,7 @@ runners and puts the result in the run summary.
 
 So far mache has only been run from public repositories. In a private one,
 stick to tags, commits and the branch you run from for now:
-[actions/resolve-ref](../actions/resolve-ref/README.md#in-a-private-repository)
+[actions/resolve-ref](https://github.com/aywrite/mache/blob/main/actions/resolve-ref/README.md#in-a-private-repository)
 has why.
 
 ## 1. Build script
@@ -30,7 +30,7 @@ scripts/build_at.sh <commit> <binary>
 The script builds the engine as it was at `<commit>` and leaves a runnable
 file at `<binary>`. It's run from the root of your repository's checkout.
 
-Copy [`examples/build_at.sh`](../examples/build_at.sh) to
+Copy [`examples/build_at.sh`](https://github.com/aywrite/mache/blob/main/examples/build_at.sh) to
 `scripts/build_at.sh`. It's written for a Rust engine built with cargo, so
 you'll probably need to change the two lines at the bottom (the build command,
 and where the binary ends up). For make they might look like:
@@ -73,7 +73,7 @@ printf 'uci\nquit\n' | /tmp/engine | grep uciok
 
 ## 2. Workflow
 
-Copy [`examples/strength.yml`](../examples/strength.yml) to
+Copy [`examples/strength.yml`](https://github.com/aywrite/mache/blob/main/examples/strength.yml) to
 `.github/workflows/strength.yml`:
 
 ```yaml
@@ -147,14 +147,14 @@ run):
 ```
 
 and then the pair counts, a row per shard, how the games ended and each
-engine's clock and node counts. [The README](../README.md#match-estimate) goes
+engine's clock and node counts. [Using the tools](tools.md#match-estimate) goes
 through each part. Each shard also uploads its games, fastchess's own output
 and a manifest as an artifact called `strength-<run>-<attempt>-shard-<n>`.
 
 Don't expect much from 500 games. The margin is about ±30 normalized elo, which
 is enough to see a big change and not a lot else. (The headline figure is
 logistic elo, so the two aren't directly comparable.)
-[What hosted runners can measure](../README.md#what-hosted-runners-can-measure)
+[What hosted runners can measure](limits.md)
 has numbers for bigger matches. Time your first run too, since how long a match
 takes depends on your engine, the time control and the runner.
 
@@ -162,7 +162,7 @@ takes depends on your engine, the time control and the runner.
 
 For smaller changes you'll want a sequential test (SPRT) instead. It keeps
 playing until it can say whether the change is at least a given amount better.
-[`examples/sprt.yml`](../examples/sprt.yml) turns it on:
+[`examples/sprt.yml`](https://github.com/aywrite/mache/blob/main/examples/sprt.yml) turns it on:
 
 ```yaml
     with:
@@ -214,7 +214,7 @@ A `pull_request` workflow can't pass a candidate or a baseline. mache won't
 resolve a ref you name unless the workflow was started by `workflow_dispatch`,
 `push`, `schedule` or `release`, where whoever picked the ref can already push
 to the repository.
-[actions/resolve-ref](../actions/resolve-ref/README.md#the-refusal-and-what-it-does-not-cover)
+[actions/resolve-ref](https://github.com/aywrite/mache/blob/main/actions/resolve-ref/README.md#the-refusal-and-what-it-does-not-cover)
 has the details.
 
 ## When it goes wrong
@@ -231,7 +231,7 @@ has the details.
 ## Options
 
 The ones you're most likely to want. The rest are described in
-[strength.yml](../.github/workflows/strength.yml).
+[strength.yml](https://github.com/aywrite/mache/blob/main/.github/workflows/strength.yml).
 
 | input | default | what it does |
 | --- | --- | --- |
@@ -239,17 +239,17 @@ The ones you're most likely to want. The rest are described in
 | `shards` | 5 | how many jobs to split them across |
 | `time_control` | 10+0.1 | passed to fastchess as `tc` |
 | `book` | `8moves_v3` | the opening book; `UHO_4060_v2` is the other one mache knows |
-| `book_table` | empty | your own book table, for any other book (the contract is in [actions/setup](../actions/setup/README.md#the-book-table-contract)) |
+| `book_table` | empty | your own book table, for any other book (the contract is in [actions/setup](https://github.com/aywrite/mache/blob/main/actions/setup/README.md#the-book-table-contract)) |
 | `cache_paths`, `cache_key` | empty | paths kept between runs with `actions/cache`; with the example script that's `~/.cargo/registry` and `~/.cargo/git`, since it builds in a fresh directory each time |
 | `hash_mb` | 256 | the hash size each engine is asked for |
 | `concurrency` | 2 | games a shard plays at once |
 
 ## Next
 
-- [calibrate.yml](../.github/workflows/README.md#the-other-two-contracts) places
+- [calibrate.yml](https://github.com/aywrite/mache/blob/main/.github/workflows/README.md#the-other-two-contracts) places
   your engine on a rating list by playing a gauntlet against rated opponents. It
   needs a table of opponents as well as the build script.
 - if you want your own cache action, build steps or manifest, call the composite
   actions from your own workflow instead.
-  [.github/workflows/README.md](../.github/workflows/README.md#what-you-give-up-by-calling-these)
+  [.github/workflows/README.md](https://github.com/aywrite/mache/blob/main/.github/workflows/README.md#what-you-give-up-by-calling-these)
   has the trade-off.

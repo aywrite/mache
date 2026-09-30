@@ -47,7 +47,7 @@ classifiers = [
 
 [project.urls]
 Homepage = "https://github.com/aywrite/mache"
-Documentation = "https://github.com/aywrite/mache/blob/main/docs/QUICKSTART.md"
+Documentation = "https://aywrite.github.io/mache/"
 Issues = "https://github.com/aywrite/mache/issues"
 Changelog = "https://github.com/aywrite/mache/blob/main/CHANGELOG.md"
 
