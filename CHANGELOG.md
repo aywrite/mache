@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.0] - 2026-09-30
+
+### Features
+
+- *(package)* Let the sequential test take its error rates
+- *(action)* Add an action at the root that pools games already on the runner
+
+### Bug Fixes
+
+- *(action)* Resolve any branch in a private repository
+
+### Documentation
+
+- *(docs)* Add a quickstart and the example files it copies
+- *(package)* Say what mache is in the heading and link the quickstart from PyPI
+- *(docs)* Publish the documentation as a GitHub Pages site
+
+### Development
+
+- *(ci)* Let strength.yml take its sequential test in normalized elo
+- *(deps)* Bump git-cliff
+
 ## [0.6.0] - 2026-09-28
 
 ### Features
