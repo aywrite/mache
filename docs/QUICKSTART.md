@@ -99,7 +99,7 @@ permissions:
 
 jobs:
   match:
-    uses: aywrite/mache/.github/workflows/strength.yml@v0.7.1
+    uses: aywrite/mache/.github/workflows/strength.yml@v0.8.0
     with:
       build: scripts/build_at.sh
       candidate: ${{ inputs.candidate }}
@@ -107,9 +107,9 @@ jobs:
       games: ${{ inputs.games }}
 ```
 
-`@v0.7.1` is the version of mache you're running. Pin a release rather than
+`@v0.8.0` is the version of mache you're running. Pin a release rather than
 `main`, so your results don't change under you. You can pin the commit the
-release is tagged at instead (`@<sha> # v0.7.1`), but the actions it calls are
+release is tagged at instead (`@<sha> # v0.8.0`), but the actions it calls are
 pinned by tag either way.
 
 Commit both files and push them to your default branch. GitHub only shows the
