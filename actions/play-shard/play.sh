@@ -17,6 +17,7 @@
 #     START                         the opening this shard starts at
 #     PAIRS                         how many rounds it plays
 #     TIME_CONTROL, HASH, CONCURRENCY, STARTUP_MS
+#     CANDIDATE_TIME_CONTROL        optional, the candidate's own clock
 #     MAX_MATCH_MINUTES             the wall clock cap
 #
 # stdout is fastchess's own, so the progress and the result block reach the
@@ -31,6 +32,19 @@ outputs=${1:?usage: play.sh <outputs-file>}
 # find the last attempt's here.
 rm -f games.pgn result.txt config.json
 
+# A clock for the candidate alone is a time odds match: the same build both
+# sides, one given more time, which prices the time rather than a change. Each
+# side's tc then goes on its own -engine line and none in -each, because a tc
+# in -each reaches both engines and takes precedence over theirs.
+candidate_tc=()
+opponent_tc=()
+each_tc=("tc=$TIME_CONTROL")
+if [ -n "${CANDIDATE_TIME_CONTROL:-}" ]; then
+    candidate_tc=("tc=$CANDIDATE_TIME_CONTROL")
+    opponent_tc=("tc=$TIME_CONTROL")
+    each_tc=()
+fi
+
 # No -sprt, sharded or not. A shard that stopped itself when its own games
 # settled the question would be one look per shard at a bound meant for one
 # look, and its games a slice chosen by what they said. The summary runs the
@@ -42,9 +56,9 @@ rm -f games.pgn result.txt config.json
 # timeout says it sent it.
 status=0
 timeout -k 60 -s INT "${MAX_MATCH_MINUTES}m" ./fastchess \
-    -engine "name=$CANDIDATE" "cmd=$CANDIDATE_BINARY" \
-    -engine "name=$OPPONENT" "cmd=$OPPONENT_BINARY" \
-    -each proto=uci "tc=$TIME_CONTROL" "option.Hash=$HASH" \
+    -engine "name=$CANDIDATE" "cmd=$CANDIDATE_BINARY" ${candidate_tc[@]+"${candidate_tc[@]}"} \
+    -engine "name=$OPPONENT" "cmd=$OPPONENT_BINARY" ${opponent_tc[@]+"${opponent_tc[@]}"} \
+    -each proto=uci ${each_tc[@]+"${each_tc[@]}"} "option.Hash=$HASH" \
     -startup-ms "$STARTUP_MS" \
     -openings "file=$BOOK_FILE" "format=$BOOK_FORMAT" order=sequential "start=$START" \
     -rounds "$PAIRS" -repeat -concurrency "$CONCURRENCY" -recover \

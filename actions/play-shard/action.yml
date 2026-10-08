@@ -58,8 +58,15 @@ inputs:
       every batch replays the first one's openings.
     default: "0"
   time_control:
-    description: The time control, as fastchess reads it.
+    description: >
+      The time control, as fastchess reads it. With `candidate_time_control`
+      set it is the opponent's alone.
     required: true
+  candidate_time_control:
+    description: >
+      A clock for the candidate alone, for a time odds match. Empty gives both
+      sides `time_control`, which is every other match.
+    default: ""
   hash_mb:
     description: >
       The hash each engine is asked for. Asked rather than given: an engine
@@ -143,6 +150,7 @@ runs:
         START: ${{ steps.slice.outputs.start }}
         PAIRS: ${{ inputs.pairs }}
         TIME_CONTROL: ${{ inputs.time_control }}
+        CANDIDATE_TIME_CONTROL: ${{ inputs.candidate_time_control }}
         HASH: ${{ inputs.hash_mb }}
         CONCURRENCY: ${{ inputs.concurrency }}
         STARTUP_MS: ${{ inputs.startup_ms }}

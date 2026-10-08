@@ -59,7 +59,7 @@ def match(tmp_path):
     return tools
 
 
-def play(tools, outputs):
+def play(tools, outputs, **extra):
     return subprocess.run(
         [str(PLAY), str(outputs)],
         cwd=tools,
@@ -81,6 +81,7 @@ def play(tools, outputs):
             "CONCURRENCY": "2",
             "STARTUP_MS": "20000",
             "MAX_MATCH_MINUTES": "150",
+            **extra,
         },
     )
 
@@ -121,6 +122,50 @@ class TestPlayingAShard:
         # does not take the caller's defaults
         executable(match / "fastchess", "echo 'some output'; exit 3")
         assert play(match, tmp_path / "outputs").returncode == 3
+
+
+def arguments(tools, outputs, **extra):
+    """What fastchess was given, one argument a line, the `-engine` and
+    `-each` groups split apart."""
+    executable(tools / "fastchess", 'printf "%s\\n" "$@" > args.txt')
+    result = play(tools, outputs, **extra)
+    assert result.returncode == 0, result.stderr
+    groups, current = [], None
+    for argument in (tools / "args.txt").read_text().splitlines():
+        if argument.startswith("-"):
+            current = [argument]
+            groups.append(current)
+        else:
+            current.append(argument)
+    return groups
+
+
+class TestTheClocks:
+    # A tc in -each reaches both engines and wins over an -engine one, which
+    # is how a time odds match once played both sides at the shorter clock
+    # and read -3 for a clock that was worth +66.
+
+    def test_one_clock_is_given_to_both_sides_in_each(self, match, tmp_path):
+        groups = arguments(match, tmp_path / "outputs")
+        engines = [g for g in groups if g[0] == "-engine"]
+        each = next(g for g in groups if g[0] == "-each")
+        assert "tc=10+0.1" in each
+        assert not any(a.startswith("tc=") for g in engines for a in g)
+
+    def test_a_candidate_clock_goes_on_each_engine_line_and_not_in_each(
+        self, match, tmp_path
+    ):
+        groups = arguments(match, tmp_path / "outputs", CANDIDATE_TIME_CONTROL="20+0.2")
+        candidate, opponent = [g for g in groups if g[0] == "-engine"]
+        each = next(g for g in groups if g[0] == "-each")
+        assert "name=new" in candidate and "tc=20+0.2" in candidate
+        assert "name=old" in opponent and "tc=10+0.1" in opponent
+        assert not any(a.startswith("tc=") for a in each)
+
+    def test_an_empty_candidate_clock_is_the_symmetric_match(self, match, tmp_path):
+        assert arguments(
+            match, tmp_path / "outputs", CANDIDATE_TIME_CONTROL=""
+        ) == arguments(match, tmp_path / "outputs")
 
 
 @pytest.fixture
