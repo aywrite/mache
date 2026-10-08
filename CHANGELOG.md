@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.0] - 2026-10-08
+
+### Features
+
+- *(action)* Give play-shard an optional clock for the candidate alone
+
 ## [0.7.1] - 2026-09-30
 
 ### Development
