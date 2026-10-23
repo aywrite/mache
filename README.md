@@ -108,7 +108,7 @@ runner. It suits a repository that plays its own matches and only wants them
 pooled:
 
 ```yaml
-- uses: aywrite/mache@v0.7.1
+- uses: aywrite/mache@v0.8.0
   with:
     pgn: shards/**/games.pgn
     candidate: new
